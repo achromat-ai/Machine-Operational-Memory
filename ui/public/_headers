@@ -1,0 +1,10 @@
+# Response headers for Workers Static Assets (the SPA shell and its build output).
+# The Worker sets the same policy on /api/* and /admin/* responses in src/index.ts.
+# Strict CSP: no inline script or style, no eval, no third-party origins.
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

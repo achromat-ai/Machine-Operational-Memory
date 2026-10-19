@@ -1,0 +1,56 @@
+@import 'tailwindcss';
+
+/*
+ * Achromatic chrome, chromatic meaning: neutral slate surfaces with a charcoal ink (the colour of the
+ * wordmark), and colour reserved for verdict state (blocked / compliant) in the Delta View. The only
+ * decoration is the faint blue and red glow in the hero, which echoes the logo mark.
+ *
+ * Fonts are the platform's own: no web font is downloaded, and the page CSP allows none from elsewhere.
+ */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  --color-ink: #1c1c1e;
+  --color-blocked: #c2410c;
+  --color-compliant: #0f766e;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-white font-sans text-slate-900 antialiased;
+}
+
+::selection {
+  background: rgb(28 28 30 / 0.12);
+}
+
+/* Small spaced capitals, after the wordmark. Used for labels only, never for sentences.
+   In the components layer so that a utility on the same element (a different colour, say) wins. */
+@layer components {
+  .eyebrow {
+    @apply text-xs font-medium tracking-[0.2em] text-slate-600 uppercase;
+  }
+}
+
+/* The hero's backdrop: two very soft glows, blue to the left and red to the right, on white. */
+.hero-glow {
+  background-color: #fff;
+  background-image:
+    radial-gradient(48rem 24rem at 12% -10%, rgb(37 99 235 / 0.09), transparent 70%),
+    radial-gradient(48rem 24rem at 88% -10%, rgb(220 38 38 / 0.08), transparent 70%),
+    linear-gradient(to bottom, rgb(248 250 252 / 0.9), #fff);
+}
+
+/* Anchored rows land below the sticky header. */
+[id^='lesson-'] {
+  scroll-margin-top: 5.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

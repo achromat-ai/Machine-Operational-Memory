@@ -1,0 +1,11 @@
+# Copy to .dev.vars for `wrangler dev`. Never commit the real file.
+# Production values are set with `npx wrangler secret put <NAME>`.
+RAMEN_API_KEY=
+# At least 32 characters, e.g. `openssl rand -base64 32`.
+IP_HMAC_KEY=
+POW_CHALLENGE_HMAC_KEY=
+# Ed25519 PKCS#8, PEM or base64 DER: `openssl genpkey -algorithm ed25519 -outform DER | base64`.
+# Use a dev-only key here.
+MOM_ATTESTATION_PRIVATE_KEY=
+# Base64 of 32 random bytes: `openssl rand -base64 32`. Permanent in production (no rotation).
+VISIBILITY_KEY=

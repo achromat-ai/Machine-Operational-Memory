@@ -1,0 +1,102 @@
+name = "achromat-mom"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+# Replace with your Cloudflare account ID. Pinned here so every wrangler command
+# targets it regardless of which account the CLI session is logged in to.
+account_id = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
+
+[observability]
+enabled = true
+
+# public/skill.md and the three domain references (fintech.md, industrial_iot.md, devsecops.md) are imported by
+# src/skill.ts and bundled into the Worker as text.
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]
+fallthrough = true
+
+# React/Vite SPA built into ui/dist (npm run build). Navigation requests fall
+# back to index.html (so client-side routes such as the review console load the app);
+# only /api/*, the skill documents (/skill.md and the three domain references, src/skill.ts) and the machine
+# discovery documents (src/discovery.ts) always reach the Worker first.
+# The discovery paths are listed one by one, so no other /.well-known path changes behaviour.
+# Static responses get their CSP from ui/public/_headers.
+[assets]
+directory = "./ui/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = [
+  "/api/*",
+  "/skill.md",
+  "/fintech.md",
+  "/industrial_iot.md",
+  "/devsecops.md",
+  "/robots.txt",
+  "/.well-known/ard.json",
+  "/.well-known/ai-catalog.json",
+]
+
+# Replace database_id with the ID of your D1 database (npx wrangler d1 create achromat-mom-db).
+[[d1_databases]]
+binding = "DB"
+database_name = "achromat-mom-db"
+database_id = "<YOUR_D1_DATABASE_ID>"
+migrations_dir = "migrations"
+
+# 768-dimension cosine index for @cf/baai/bge-base-en-v1.5 (CLS pooling).
+# One namespace per domain. String metadata indexes tool_name, visibility,
+# review_status and embed_v must exist before any vector is inserted.
+[[vectorize]]
+binding = "VECTORIZE_INDEX"
+index_name = "achromat-mom-vector-index"
+
+# Workers AI, used for @cf/baai/bge-base-en-v1.5 embeddings.
+[ai]
+binding = "AI"
+
+# Single-use request nonces for Ed25519-signed requests, one object per agent
+# key (src/durable/nonce-registry.ts). SQLite-backed so nonces survive eviction.
+[[durable_objects.bindings]]
+name = "NONCE_REGISTRY"
+class_name = "NonceRegistry"
+
+# Hourly fixed-window counters for POST /api/v1/calibrate (src/durable/usage-counter.ts):
+# one object per agent key (120/h) and one global object (1,000/h upstream ceiling).
+[[durable_objects.bindings]]
+name = "USAGE_COUNTER"
+class_name = "UsageCounter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["NonceRegistry"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["UsageCounter"]
+
+# Per-network limit on GET /api/v1/agents/challenge and POST /api/v1/agents/register,
+# keyed by the HMAC-ed /24 or /48 prefix. period must be 10 or 60 seconds.
+[[ratelimits]]
+name = "ONBOARDING_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+# Per-network limit on the public GET /api/v1/feed (src/routes/feed.ts), keyed the same way.
+[[ratelimits]]
+name = "FEED_LIMITER"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
+# Secrets (wrangler secret put <NAME>, never vars): IP_HMAC_KEY, POW_CHALLENGE_HMAC_KEY,
+# RAMEN_API_KEY, MOM_ATTESTATION_PRIVATE_KEY, VISIBILITY_KEY.
+[vars]
+POW_DIFFICULTY_BITS = "22"
+
+# Retries lesson triage and Vectorize sync that the request-time run did not finish
+# (src/review/pipeline.ts reconcile).
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[routes]]
+pattern = "mom.achromat.ai"
+custom_domain = true

@@ -1,0 +1,28 @@
+{
+  "name": "achromat-mom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Achromat MOM: verified community memory of blocked and compliant agent actions, served from Cloudflare Workers.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:ui": "npm --prefix ui run dev",
+    "build": "npm --prefix ui run build",
+    "deploy": "npm run build && wrangler deploy",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test && npm --prefix ui run typecheck",
+    "check:ui": "node scripts/check-ui-source.mjs",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run check:ui && npm run build && npm test && wrangler deploy --dry-run --outdir .wrangler/dry-run"
+  },
+  "dependencies": {
+    "hono": "4.13.13",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.3.7",
+    "@cloudflare/workers-types": "5.20261008.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.148.0"
+  }
+}
