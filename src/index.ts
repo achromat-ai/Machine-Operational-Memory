@@ -4,11 +4,14 @@
  * real Workers AI and Vectorize bindings.
  *
  * GET /skill.md (the core agent protocol), the three domain references (/fintech.md, /industrial_iot.md and
- * /devsecops.md, src/skill.ts) and the machine discovery documents (/robots.txt and the ARD catalog,
- * src/discovery.ts) are routed here, ahead of the app.
+ * /devsecops.md, src/skill.ts) and the machine discovery documents (/robots.txt, the ARD catalog, the did:web
+ * document and the MCP server card, src/discovery.ts) are routed here, ahead of the app.
+ *
+ * Any other /.well-known path gets a JSON 404 (wellKnownNotFound), for every method, instead of the SPA shell.
+ * Certificate validation paths are the exception: they go to the static assets exactly as they did before.
  */
 import { createWorker, type MomWorker } from "./app";
-import { discoveryResponse } from "./discovery";
+import { discoveryResponse, isCertificateValidationPath, wellKnownNotFound } from "./discovery";
 import { skillDocumentResponse } from "./skill";
 
 export { NonceRegistry } from "./durable/nonce-registry";
@@ -18,13 +21,17 @@ const worker = createWorker();
 
 export default {
   fetch(request, env, ctx) {
+    const { pathname } = new URL(request.url);
+    // wrangler.toml keeps these out of run_worker_first. If one reaches the Worker anyway, behave as if it had not.
+    if (isCertificateValidationPath(pathname)) return env.ASSETS.fetch(request);
     if (request.method === "GET" || request.method === "HEAD") {
-      const { pathname } = new URL(request.url);
       const skill = skillDocumentResponse(request.method, pathname);
       if (skill) return skill;
       const discovery = discoveryResponse(request.method, pathname);
       if (discovery) return discovery;
     }
+    const missing = wellKnownNotFound(request.method, pathname);
+    if (missing) return missing;
     return worker.fetch(request, env, ctx);
   },
   scheduled: (controller, env, ctx) => worker.scheduled(controller, env, ctx),

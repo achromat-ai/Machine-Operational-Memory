@@ -12,7 +12,7 @@ import devsecops from "../public/devsecops.md";
 import fintech from "../public/fintech.md";
 import industrialIot from "../public/industrial_iot.md";
 import skill from "../public/skill.md";
-import { CATALOG_BODY, ROBOTS_TXT } from "../src/discovery";
+import { CATALOG_BODY, DID_BODY, MCP_CARD_BODY, ROBOTS_TXT } from "../src/discovery";
 
 /** Compared case-insensitively as substrings, so "administrator" and "ADMIN" are caught too. */
 const FORBIDDEN_TERMS = [
@@ -44,6 +44,8 @@ const PUBLIC_DOCS = [["README.md", readme], ...SKILL_DOCS] as const;
 const DISCOVERY_DOCS = [
   ["/robots.txt", ROBOTS_TXT],
   ["/.well-known/ard.json", CATALOG_BODY],
+  ["/.well-known/did.json", DID_BODY],
+  ["/.well-known/mcp/server-card.json", MCP_CARD_BODY],
 ] as const;
 
 /** Every line that contains the term, for a failure message that points at the leak. */

@@ -17,9 +17,9 @@ fallthrough = true
 
 # React/Vite SPA built into ui/dist (npm run build). Navigation requests fall
 # back to index.html (so client-side routes such as the review console load the app);
-# only /api/*, the skill documents (/skill.md and the three domain references, src/skill.ts) and the machine
-# discovery documents (src/discovery.ts) always reach the Worker first.
-# The discovery paths are listed one by one, so no other /.well-known path changes behaviour.
+# only /api/*, the skill documents (/skill.md and the three domain references, src/skill.ts) and everything under
+# /.well-known (the discovery documents in src/discovery.ts, and a JSON 404 for the rest) always reach the Worker first.
+# The certificate validation paths under /.well-known are excluded below and keep their previous behaviour.
 # Static responses get their CSP from ui/public/_headers.
 [assets]
 directory = "./ui/dist"
@@ -32,8 +32,14 @@ run_worker_first = [
   "/industrial_iot.md",
   "/devsecops.md",
   "/robots.txt",
-  "/.well-known/ard.json",
-  "/.well-known/ai-catalog.json",
+  # Everything under /.well-known reaches the Worker. That covers the documents src/discovery.ts serves
+  # (ard.json, ai-catalog.json, did.json, mcp/server-card.json; wrangler rejects patterns a wildcard makes redundant,
+  # so they are not listed one by one) and gives every other path a JSON 404 instead of the SPA shell.
+  "/.well-known",
+  "/.well-known/*",
+  # Negative patterns win. Certificate authorities validate domain control here, so these stay with the assets.
+  "!/.well-known/acme-challenge/*",
+  "!/.well-known/pki-validation/*",
 ]
 
 # Replace database_id with the ID of your D1 database (npx wrangler d1 create achromat-mom-db).

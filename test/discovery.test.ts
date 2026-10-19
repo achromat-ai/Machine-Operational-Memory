@@ -1,5 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { AI_CATALOG_PATH, ARD_PATH, CATALOG, CATALOG_BODY, ROBOTS_PATH, ROBOTS_TXT, SITE_ORIGIN } from "../src/discovery";
+import { MOM_ATTESTATION_KID, MOM_ATTESTATION_PUBLIC_KEYS } from "../src/crypto/attestation";
+import {
+  AGENT_SKILL_TYPE,
+  AI_CATALOG_PATH,
+  AI_SKILL_TYPE,
+  ARD_PATH,
+  CATALOG,
+  CATALOG_BODY,
+  DID,
+  DID_BODY,
+  DID_DOCUMENT,
+  DID_KEY_ID,
+  DID_PATH,
+  MCP_CARD_BODY,
+  MCP_CARD_PATH,
+  MCP_CARD_TYPE,
+  MCP_PACKAGE,
+  MCP_SERVER_CARD,
+  MCP_SERVER_VERSION,
+  ROBOTS_PATH,
+  ROBOTS_TXT,
+  SITE_ORIGIN,
+  TRUST_MANIFEST,
+  isCertificateValidationPath,
+  isWellKnownPath,
+  wellKnownNotFound,
+} from "../src/discovery";
 import { SKILL_PATH } from "../src/skill";
 import { call } from "./helpers";
 
@@ -90,6 +116,8 @@ describe("GET /robots.txt", () => {
     "/devsecops.md",
     "/.well-known/ard.json",
     "/.well-known/ai-catalog.json",
+    "/.well-known/did.json",
+    "/.well-known/mcp/server-card.json",
     "/api/v1/feed",
   ];
   const PRIVATE = [
@@ -221,7 +249,7 @@ describe("the ARD catalog", () => {
       expect(entry.identifier.startsWith(`urn:air:${host}:`), entry.identifier).toBe(true);
       expect(entry.url.startsWith(`${SITE_ORIGIN}/`), entry.url).toBe(true);
     }
-    expect(CATALOG.host.identifier).toBe(host);
+    expect(CATALOG.host.identifier).toBe(`did:web:${host}`);
   });
 
   it("lists the agent skill at the route that serves it, as a markdown skill", async () => {
@@ -262,6 +290,11 @@ describe("the ARD catalog", () => {
     for (const path of ["/skill.md", "/fintech.md", "/industrial_iot.md", "/devsecops.md"]) expect(ROBOTS_TXT).toContain(`Allow: ${path}\n`);
   });
 
+  it("allows crawlers to read the DID document and the MCP server card", () => {
+    expect(ROBOTS_TXT).toContain(`Allow: ${DID_PATH}\n`);
+    expect(ROBOTS_TXT).toContain(`Allow: ${MCP_CARD_PATH}\n`);
+  });
+
   it("lists the protocol endpoints exactly as the protocol document describes them, plus the public feed", async () => {
     const skillText = await (await call(SKILL_PATH)).text();
     const metadata = CATALOG.entries[0]!.metadata as Record<string, string>;
@@ -277,5 +310,294 @@ describe("the ARD catalog", () => {
     }
     expect(CATALOG.entries.some((entry) => entry.url === `${SITE_ORIGIN}/api/v1/feed`)).toBe(true);
     expect((await call("/api/v1/feed")).status).toBe(200);
+  });
+});
+
+// ───────────────────────── the /.well-known shield ─────────────────────────
+
+describe("the /.well-known shield", () => {
+  const JSON_TYPE = "application/json; charset=utf-8";
+  const UNKNOWN = [
+    "/.well-known/does-not-exist",
+    "/.well-known/mcp/nope.json",
+    "/.well-known/mcp/",
+    "/.well-known/security.txt",
+    "/.well-known/did.json/extra",
+    "/.well-known/ard.json/",
+    "/.well-known/mcp-registry-auth",
+    "/.well-known/",
+    "/.well-known",
+  ];
+
+  it("answers every unknown /.well-known path with a 404 and a strict JSON body, never the SPA shell", async () => {
+    for (const path of UNKNOWN) {
+      const response = await call(path);
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get("Content-Type"), path).toBe(JSON_TYPE);
+      expect(response.headers.get("Cache-Control"), path).toBe("public, max-age=60");
+      expect(response.headers.get("Access-Control-Allow-Origin"), path).toBe("*");
+      expect(response.headers.get("X-Content-Type-Options"), path).toBe("nosniff");
+      expect(response.headers.get("Content-Security-Policy"), path).toContain("default-src 'none'");
+      const text = await response.text();
+      expect(text, path).not.toContain("<!doctype");
+      expect(JSON.parse(text), path).toEqual({ success: false, error: "not found" });
+    }
+  });
+
+  it("does the same for HEAD (no body) and for every other method", async () => {
+    for (const path of ["/.well-known/does-not-exist", "/.well-known/mcp/nope.json"]) {
+      const head = await call(path, { method: "HEAD" });
+      expect(head.status, path).toBe(404);
+      expect(head.headers.get("Content-Type"), path).toBe(JSON_TYPE);
+      expect(await head.text(), path).toBe("");
+      for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+        const response = await call(path, { method, ...(method === "DELETE" ? {} : { body: "{}" }) });
+        expect(response.status, `${method} ${path}`).toBe(404);
+        expect(response.headers.get("Content-Type"), `${method} ${path}`).toBe(JSON_TYPE);
+      }
+    }
+  });
+
+  it("leaves the real discovery documents alone", async () => {
+    for (const path of [ARD_PATH, AI_CATALOG_PATH, DID_PATH, MCP_CARD_PATH]) expect((await call(path)).status, path).toBe(200);
+  });
+
+  it("recognises /.well-known paths exactly, and nothing that merely looks like one", () => {
+    for (const path of ["/.well-known", "/.well-known/", "/.well-known/x", "/.well-known/mcp/server-card.json"]) {
+      expect(isWellKnownPath(path), path).toBe(true);
+    }
+    for (const path of ["/", "/well-known/x", "/.well-knownx", "/.well-knownx/y", "/api/.well-known/x", "/.WELL-KNOWN/x"]) {
+      expect(isWellKnownPath(path), path).toBe(false);
+    }
+  });
+
+  it("never answers certificate validation paths: the shield steps aside and index.ts hands them to the assets", () => {
+    for (const path of ["/.well-known/acme-challenge/token", "/.well-known/acme-challenge/a/b", "/.well-known/pki-validation/file.txt"]) {
+      expect(isCertificateValidationPath(path), path).toBe(true);
+      for (const method of ["GET", "HEAD", "POST"]) expect(wellKnownNotFound(method, path), `${method} ${path}`).toBeNull();
+    }
+    // Only the directory prefixes count: a sibling with a similar name is just an unknown path.
+    for (const path of ["/.well-known/acme-challenge", "/.well-known/acme-challengeX/t", "/.well-known/pki-validationX/t"]) {
+      expect(isCertificateValidationPath(path), path).toBe(false);
+      expect(wellKnownNotFound("GET", path)?.status, path).toBe(404);
+    }
+    expect(wellKnownNotFound("GET", "/api/v1/health")).toBeNull();
+    expect(wellKnownNotFound("GET", "/")).toBeNull();
+  });
+
+  it("does not hand a certificate validation request to the shield when it reaches the Worker", async () => {
+    const response = await call("/.well-known/acme-challenge/some-token");
+    expect(response.headers.get("Content-Type")).not.toBe(JSON_TYPE);
+    expect(await response.text()).not.toContain('"error":"not found"');
+  });
+});
+
+// ───────────────────────── the did:web document ─────────────────────────
+
+const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/** base58btc decode of a multibase string ('z' + base58btc). */
+function decodeMultibase58btc(value: string): Uint8Array {
+  expect(value[0]).toBe("z");
+  let n = 0n;
+  for (const char of value.slice(1)) {
+    const digit = BASE58.indexOf(char);
+    expect(digit, `base58 character ${char}`).toBeGreaterThanOrEqual(0);
+    n = n * 58n + BigInt(digit);
+  }
+  let hex = n.toString(16);
+  if (hex.length % 2 === 1) hex = `0${hex}`;
+  return Uint8Array.from(hex.match(/../g)!.map((pair) => Number.parseInt(pair, 16)));
+}
+
+const toHex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+describe("GET /.well-known/did.json", () => {
+  it("is served as plain JSON, publicly cacheable, readable cross-origin, with the security headers", async () => {
+    const response = await call(DID_PATH);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    const body = await response.text();
+    expect(body).toBe(DID_BODY);
+    expect(JSON.parse(body)).toEqual(DID_DOCUMENT);
+  });
+
+  it("answers HEAD without a body, and refuses other methods", async () => {
+    const head = await call(DID_PATH, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+    expect((await call(DID_PATH, { method: "POST", body: "{}" })).status).toBe(404);
+  });
+
+  it("is the document that did:web resolution for this host would fetch, and names itself", () => {
+    const host = new URL(SITE_ORIGIN).hostname;
+    expect(DID).toBe(`did:web:${host}`);
+    expect(DID_DOCUMENT.id).toBe(DID);
+    // did:web: replace ':' with '/', prefix https://, append /.well-known/did.json when there is no path.
+    const resolved = `https://${DID.slice("did:web:".length).replaceAll(":", "/")}/.well-known/did.json`;
+    expect(resolved).toBe(`${SITE_ORIGIN}${DID_PATH}`);
+  });
+
+  it("is a well-formed DID document: DID Core context first, absolute DID URLs only, references that resolve", () => {
+    expect(DID_DOCUMENT["@context"][0]).toBe("https://www.w3.org/ns/did/v1");
+    const methods = DID_DOCUMENT.verificationMethod;
+    expect(methods.length).toBeGreaterThan(0);
+    const ids = new Set<string>();
+    for (const method of methods) {
+      expect(method.id.startsWith(`${DID}#`), method.id).toBe(true); // absolute, never a bare fragment
+      expect(method.controller).toBe(DID);
+      expect(method.type).toBe("Multikey");
+      ids.add(method.id);
+    }
+    for (const reference of [...DID_DOCUMENT.authentication, ...DID_DOCUMENT.assertionMethod]) {
+      expect(reference.startsWith(`${DID}#`), reference).toBe(true);
+      expect(ids.has(reference), reference).toBe(true);
+    }
+  });
+
+  it("carries exactly the key that signs pair attestations (mom_pk_v1), so the two cannot drift apart", () => {
+    expect(DID_KEY_ID).toBe(`${DID}#${MOM_ATTESTATION_KID}`);
+    const method = DID_DOCUMENT.verificationMethod.find((candidate) => candidate.id === DID_KEY_ID);
+    expect(method).toBeDefined();
+    const bytes = decodeMultibase58btc(method!.publicKeyMultibase);
+    expect(bytes.length).toBe(34);
+    expect([bytes[0], bytes[1]]).toEqual([0xed, 0x01]); // the multicodec for an Ed25519 public key
+    expect(toHex(bytes.slice(2))).toBe(MOM_ATTESTATION_PUBLIC_KEYS[MOM_ATTESTATION_KID]);
+  });
+
+  it("holds no private key material", () => {
+    expect(DID_BODY).not.toMatch(/private|secret|seed|-----BEGIN/i);
+  });
+});
+
+// ───────────────────────── the MCP server card ─────────────────────────
+
+describe("GET /.well-known/mcp/server-card.json", () => {
+  it("is served as plain JSON, publicly cacheable, readable cross-origin, with the security headers", async () => {
+    const response = await call(MCP_CARD_PATH);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    const body = await response.text();
+    expect(body).toBe(MCP_CARD_BODY);
+    expect(JSON.parse(body)).toEqual(MCP_SERVER_CARD);
+  });
+
+  it("answers HEAD without a body, and refuses other methods", async () => {
+    const head = await call(MCP_CARD_PATH, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+    expect((await call(MCP_CARD_PATH, { method: "POST", body: "{}" })).status).toBe(404);
+  });
+
+  it("meets the MCP server card schema's required terms and limits", () => {
+    const card = MCP_SERVER_CARD;
+    expect(card.$schema).toMatch(/^https:\/\/static\.modelcontextprotocol\.io\/schemas\/v1\/server-card\.schema\.json$/);
+    expect(card.name).toMatch(/^[a-zA-Z0-9.-]+\/[a-zA-Z0-9._-]+$/);
+    expect(card.name.length).toBeGreaterThanOrEqual(3);
+    expect(card.name.length).toBeLessThanOrEqual(200);
+    expect(card.description.length).toBeGreaterThanOrEqual(1);
+    expect(card.description.length).toBeLessThanOrEqual(100);
+    expect(card.title.length).toBeLessThanOrEqual(100);
+    expect(card.version).toBe(MCP_SERVER_VERSION);
+    expect(card.version).not.toMatch(/[\^~><*x]/); // no ranges
+    expect(() => new URL(card.websiteUrl)).not.toThrow();
+    for (const icon of card.icons) expect(icon.src.startsWith(`${SITE_ORIGIN}/`)).toBe(true);
+  });
+
+  it("describes a local stdio npm package honestly: no remote endpoint, install details in a vendor-namespaced _meta key", () => {
+    const card = MCP_SERVER_CARD as Record<string, unknown>;
+    expect("remotes" in card).toBe(false);
+    const meta = MCP_SERVER_CARD._meta;
+    expect(Object.keys(meta)).toEqual(["ai.achromat/distribution"]);
+    // a _meta prefix with an 'mcp' or 'modelcontextprotocol' label is reserved for MCP itself
+    expect(Object.keys(meta)[0]!.split("/")[0]!.split(".")).not.toContain("mcp");
+    const distribution = meta["ai.achromat/distribution"];
+    expect(distribution.registryType).toBe("npm");
+    expect(distribution.identifier).toBe(MCP_PACKAGE);
+    expect(distribution.version).toBe(MCP_SERVER_VERSION);
+    expect(distribution.transport).toEqual({ type: "stdio" });
+    expect(distribution.args).toContain(MCP_PACKAGE);
+  });
+});
+
+// ───────────────────────── the expanded catalog ─────────────────────────
+
+describe("the expanded ARD catalog", () => {
+  const entries = CATALOG.entries;
+  const strip = (entry: Record<string, unknown>) => {
+    const { identifier: _identifier, type: _type, ...rest } = entry;
+    return rest;
+  };
+
+  it("publishes every skill twice: once as ARD's agent skill type, once as ai-skill, same document", () => {
+    const standard = entries.filter((entry) => entry.type === AGENT_SKILL_TYPE);
+    const twins = entries.filter((entry) => entry.type === AI_SKILL_TYPE);
+    expect(standard.length).toBe(4);
+    expect(twins.length).toBe(4);
+    // The base protocol stays first: other tests and clients read entries[0].
+    expect(entries[0]!.identifier).toBe("urn:air:mom.achromat.ai:skill:achromat-mom");
+    for (const original of standard) {
+      const twin = twins.find((candidate) => candidate.identifier === original.identifier.replace(":skill:", ":ai-skill:"));
+      expect(twin, original.identifier).toBeDefined();
+      expect(twin!.url, original.identifier).toBe(original.url);
+      expect(strip(twin as Record<string, unknown>), original.identifier).toEqual(strip(original as Record<string, unknown>));
+    }
+    expect(twins.map((entry) => entry.identifier)).toEqual([
+      "urn:air:mom.achromat.ai:ai-skill:achromat-mom",
+      "urn:air:mom.achromat.ai:ai-skill:achromat-mom-fintech",
+      "urn:air:mom.achromat.ai:ai-skill:achromat-mom-industrial-iot",
+      "urn:air:mom.achromat.ai:ai-skill:achromat-mom-devsecops",
+    ]);
+  });
+
+  it("lists the MCP server with the card type, pointing at the hosted card and naming the npm package", () => {
+    const mcp = entries.filter((entry) => entry.type === MCP_CARD_TYPE);
+    expect(mcp.length).toBe(1);
+    const entry = mcp[0]!;
+    expect(entry.identifier).toBe("urn:air:mom.achromat.ai:server:achromat-mom-mcp");
+    expect(entry.url).toBe(`${SITE_ORIGIN}${MCP_CARD_PATH}`);
+    expect(entry.version).toBe(MCP_SERVER_CARD.version);
+    expect(entry.metadata?.npmPackage).toBe(MCP_SERVER_CARD._meta["ai.achromat/distribution"].identifier);
+    expect(entry.metadata?.transport).toBe("stdio");
+    expect(entry.tags).toContain("mcp");
+    expect("data" in entry).toBe(false);
+  });
+
+  it("has ten entries in all, every identifier unique", () => {
+    expect(entries.length).toBe(10);
+    expect(new Set(entries.map((entry) => entry.identifier)).size).toBe(10);
+  });
+
+  it("puts the trustManifest on the host and on every entry, and never at the document root", () => {
+    const parsed = JSON.parse(CATALOG_BODY) as Record<string, unknown> & { host: Record<string, unknown>; entries: Array<Record<string, unknown>> };
+    // The AI Catalog schema rejects any root member other than specVersion, host and entries.
+    expect(Object.keys(parsed).sort()).toEqual(["entries", "host", "specVersion"]);
+    expect(parsed.host.trustManifest).toEqual(TRUST_MANIFEST);
+    expect(parsed.entries.length).toBe(10);
+    for (const entry of parsed.entries) expect(entry.trustManifest, String(entry.identifier)).toEqual(TRUST_MANIFEST);
+  });
+
+  it("makes the host identifier and every trust identity the did:web, which the DID document names", () => {
+    expect(CATALOG.host.identifier).toBe(DID);
+    expect(TRUST_MANIFEST.identity).toBe(DID);
+    expect(TRUST_MANIFEST.identityType).toBe("did");
+    expect(DID_DOCUMENT.id).toBe(TRUST_MANIFEST.identity);
+  });
+
+  it("satisfies ARD's publisher authority binding: the trust domain equals the publisher in every entry URN", () => {
+    const trustDomain = TRUST_MANIFEST.identity.split(":")[2];
+    for (const entry of entries) expect(entry.identifier.split(":")[2], entry.identifier).toBe(trustDomain);
+  });
+
+  it("declares its trust framework with the two terms the AI Catalog schema requires", () => {
+    expect(TRUST_MANIFEST.trustSchema.identifier).toBe("https://www.w3.org/TR/did-core/");
+    expect(TRUST_MANIFEST.trustSchema.version).toBe("1.0");
+    expect(TRUST_MANIFEST.trustSchema.verificationMethods).toEqual(["did"]);
   });
 });
