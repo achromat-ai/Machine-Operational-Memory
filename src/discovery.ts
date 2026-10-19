@@ -81,7 +81,7 @@ export const TRUST_MANIFEST = {
 
 export const MCP_PACKAGE = "@achromat-ai/mcp-server";
 /** Keep in step with the published npm package. */
-export const MCP_SERVER_VERSION = "0.1.0";
+export const MCP_SERVER_VERSION = "0.1.1";
 
 /**
  * A card describes how a client reaches a server. This server is a local stdio package and has no remote
