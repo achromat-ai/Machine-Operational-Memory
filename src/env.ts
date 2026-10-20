@@ -19,6 +19,8 @@ export interface Env {
   ONBOARDING_LIMITER: RateLimit;
   /** Per-network limit on the public GET /api/v1/feed. */
   FEED_LIMITER: RateLimit;
+  /** achromat_mom_telemetry: anonymised /recall and /calibrate usage data points (src/telemetry.ts). */
+  ANALYTICS: AnalyticsEngineDataset;
   /** Secret: HMAC key for caller IP prefixes. Raw IPs are never stored. */
   IP_HMAC_KEY: string;
   /** Hashcash difficulty for new challenges (16-40). Production: 22. */

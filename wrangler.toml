@@ -72,6 +72,12 @@ class_name = "NonceRegistry"
 name = "USAGE_COUNTER"
 class_name = "UsageCounter"
 
+# API consumption telemetry for /recall and /calibrate (src/telemetry.ts). One data point per answered
+# request; the agent key is logged only as a truncated SHA-256, never in plaintext.
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "achromat_mom_telemetry"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["NonceRegistry"]

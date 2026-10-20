@@ -24,6 +24,7 @@ import { QueryRequest, RecallResponse, taskFingerprint, toValidationFailure } fr
 import { embedOne } from "../search/embed";
 import { buildQueryText } from "../search/intent";
 import type { SearchFactory, VectorMatch } from "../search/vectors";
+import { recordTelemetry, type TelemetryStatus } from "../telemetry";
 import { DAY_MS, HOUR_MS, consumeUsage, secondsUntil } from "../usage";
 
 export const RECALL_LIMIT_PER_AGENT_PER_HOUR = 240;
@@ -256,20 +257,32 @@ async function handleRecall(c: Context<RecallEnv>, options: RecallOptions) {
     }
   }
 
+  const track = (status: TelemetryStatus) =>
+    recordTelemetry(c, { action: "recall", domain: body.domain, tool: body.tool, agentKey: agent.agentKey, status });
+
   if (candidate === null) {
     await logMiss(env, { agentKey: agent.agentKey, domain: body.domain, tool: body.tool, fingerprint, description: body.task_description, nearest, nowMs });
+    track("miss");
     return c.json(RecallResponse.parse({ success: true, match: false }));
   }
 
   const delivery = await claimDelivery(env, agent.agentKey, candidate, nowMs, dailyLimit);
   if (delivery === "exhausted") {
+    track("budget_exhausted");
     return c.json(RecallResponse.parse({ success: true, match: false, budget_exhausted: true }));
   }
-  if (delivery === "unavailable") return c.json(RecallResponse.parse({ success: true, match: false }));
+  if (delivery === "unavailable") {
+    track("miss");
+    return c.json(RecallResponse.parse({ success: true, match: false }));
+  }
 
   const row = await hydrate(env, candidate.lesson_id);
-  if (row === null) return c.json(RecallResponse.parse({ success: true, match: false }));
+  if (row === null) {
+    track("miss");
+    return c.json(RecallResponse.parse({ success: true, match: false }));
+  }
 
+  track("hit");
   return c.json(
     RecallResponse.parse({
       success: true,

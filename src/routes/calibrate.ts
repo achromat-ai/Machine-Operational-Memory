@@ -45,6 +45,7 @@ import {
 import { processLesson } from "../review/pipeline";
 import { EMBED_VERSION } from "../search/intent";
 import type { SearchFactory } from "../search/vectors";
+import { recordTelemetry } from "../telemetry";
 import { evaluateUpstream } from "../upstream/evaluate";
 import { HOUR_MS, consumeUsage, secondsUntil } from "../usage";
 
@@ -572,6 +573,15 @@ async function handleCalibrate(c: Context<CalibrateEnv>, options: CalibrateOptio
     /** The exact string ramen-ai evaluated; the receipt's payload_hash is SHA-256 of it. */
     evaluated_input: input,
   };
+
+  // One data point per evaluated call: the request shape (trap or fix) and the upstream verdict.
+  recordTelemetry(c, {
+    action: parsed.data.kind === "fix" ? "calibrate_fix" : "calibrate_trap",
+    domain: body.domain,
+    tool: body.tool,
+    agentKey: agent.agentKey,
+    status: evaluation.allowed ? "allow" : "block",
+  });
 
   if (evaluation.allowed) {
     const pairing = await ingestAllow(ctx, receipt, handle);

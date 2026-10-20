@@ -30,8 +30,24 @@ export function blockVerdict(overrides: Partial<FakeVerdict> = {}): FakeVerdict 
   };
 }
 
+/** In-memory ANALYTICS binding: records every data point the Worker writes. */
+export function fakeAnalytics() {
+  const points: AnalyticsEngineDataPoint[] = [];
+  const dataset: AnalyticsEngineDataset & { points: AnalyticsEngineDataPoint[]; fail: boolean } = {
+    points,
+    fail: false,
+    writeDataPoint(event?: AnalyticsEngineDataPoint) {
+      if (this.fail) throw new Error("analytics unavailable");
+      points.push(structuredClone(event ?? {}));
+    },
+  };
+  return dataset;
+}
+
 export function createWorld(overrides: Partial<AppOptions> = {}) {
   const fake = fakeSearch();
+  const analytics = fakeAnalytics();
+  const worldEnv = { ...env, ANALYTICS: analytics } as typeof env;
   const worker = createWorker({
     receiptKeys: { ramen_pk_v1: TEST_RAMEN_PUBLIC_KEY_HEX },
     search: fake.search,
@@ -44,13 +60,14 @@ export function createWorld(overrides: Partial<AppOptions> = {}) {
     headers.set("CF-Connecting-IP", freshIp());
     headers.set("Content-Type", "application/json");
     const ctx = createExecutionContext();
-    const response = await worker.fetch(new Request(ORIGIN + path, { method: "POST", headers, body }), env, ctx);
+    const response = await worker.fetch(new Request(ORIGIN + path, { method: "POST", headers, body }), worldEnv, ctx);
     await waitOnExecutionContext(ctx);
     return { status: response.status, json: await response.json(), response };
   }
 
   return {
     ...fake,
+    analytics,
     worker,
     calibrate: (agent: TestAgent, payload: unknown) => send(agent, "/api/v1/calibrate", payload),
     recall: (agent: TestAgent, payload: unknown) => send(agent, "/api/v1/recall", payload),
@@ -68,6 +85,7 @@ export function createWorld(overrides: Partial<AppOptions> = {}) {
       fake.store.records.clear();
       fake.store.upsertCalls = [];
       fake.store.deleteCalls = [];
+      analytics.points.length = 0;
     },
     /** Turn 1 + Turn 2 over HTTP; returns the lesson once triage and sync have run. */
     async createLesson(
