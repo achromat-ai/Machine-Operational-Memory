@@ -9,6 +9,8 @@
  *   GET /.well-known/mcp/server-card.json    the MCP server card that the catalog's MCP entry points at; its
  *                                            `remotes` names the public sandbox at POST /mcp (src/routes/mcp.ts)
  *   any /.well-known/<anything else>         404 with a JSON body (never the SPA shell)
+ *   /llms.txt, /llms-full.txt, /sitemap.xml, /sitemap_index.xml, /agents.md
+ *                                            404 with a JSON body (the top-level paths crawlers probe for)
  *
  * All of them are public and static. src/index.ts routes them ahead of the Hono app, and wrangler.toml lists
  * /.well-known/* in [assets].run_worker_first, otherwise the SPA fallback would answer each of them (and every
@@ -21,7 +23,7 @@
  */
 import { SECURITY_HEADERS } from "./app";
 import { MCP_PATH } from "./routes/mcp";
-import { DEVSECOPS_PATH, FINTECH_PATH, INDUSTRIAL_IOT_PATH, SKILL_PATH, SKILL_PATHS } from "./skill";
+import { AGENT_SKILLS_DIR, DEVSECOPS_PATH, FINTECH_PATH, INDUSTRIAL_IOT_PATH, SKILL_PATH, SKILL_PATHS } from "./skill";
 
 export const ROBOTS_PATH = "/robots.txt";
 export const ARD_PATH = "/.well-known/ard.json";
@@ -131,6 +133,8 @@ export const ROBOTS_TXT =
     "Allow: /assets/",
     // The core protocol first, then the domain references.
     ...SKILL_PATHS.map((path) => `Allow: ${path}`),
+    // The Agent Skills index and each skill's conventional SKILL.md path (src/agent-skills.ts).
+    `Allow: ${AGENT_SKILLS_DIR}/`,
     `Allow: ${ARD_PATH}`,
     `Allow: ${AI_CATALOG_PATH}`,
     `Allow: ${DID_PATH}`,
@@ -402,6 +406,33 @@ export function isCertificateValidationPath(pathname: string): boolean {
  */
 export function wellKnownNotFound(method: string, pathname: string): Response | null {
   if (!isWellKnownPath(pathname) || isCertificateValidationPath(pathname)) return null;
+  const headers = new Headers(SECURITY_HEADERS);
+  headers.set("Content-Type", JSON_TYPE);
+  headers.set("Cache-Control", "public, max-age=60");
+  headers.set("Access-Control-Allow-Origin", "*");
+  return new Response(method === "HEAD" ? null : NOT_FOUND_BODY, { status: 404, headers });
+}
+
+// ───────────────────────────── the top-level crawler shield ─────────────────────────────
+
+/**
+ * Top-level paths that crawlers and agent tooling probe for and that this service does not publish. Without the
+ * shield the SPA fallback answers each with index.html and a 200, which their parsers choke on. Exact paths only:
+ * wrangler.toml lists each in [assets].run_worker_first (keep the two lists in step; a test pins this one).
+ * /robots.txt is not here because it is served (DOCUMENTS above). Publishing one of these later means serving
+ * it from DOCUMENTS and removing it here.
+ */
+export const CRAWLER_SHIELD_PATHS: readonly string[] = Object.freeze([
+  "/llms.txt",
+  "/llms-full.txt",
+  "/sitemap.xml",
+  "/sitemap_index.xml",
+  "/agents.md",
+]);
+
+/** The same strict JSON 404 as the /.well-known shield, for every method. Returns null for any other path. */
+export function crawlerNotFound(method: string, pathname: string): Response | null {
+  if (!CRAWLER_SHIELD_PATHS.includes(pathname)) return null;
   const headers = new Headers(SECURITY_HEADERS);
   headers.set("Content-Type", JSON_TYPE);
   headers.set("Cache-Control", "public, max-age=60");

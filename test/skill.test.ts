@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import devsecopsMarkdown from "../public/devsecops.md";
 import fintechMarkdown from "../public/fintech.md";
 import industrialIotMarkdown from "../public/industrial_iot.md";
-import skillMarkdown from "../public/skill.md";
+import skillMarkdown from "../SKILL.md";
 import {
   REQUEST_SIGNING_CONTEXT,
   REGISTRATION_SIGNING_CONTEXT,

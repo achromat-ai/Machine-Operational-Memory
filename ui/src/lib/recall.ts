@@ -4,7 +4,7 @@
  *
  * Recall is a structured lookup, not free-text search: the server needs a domain, an exact tool name, a
  * task description (matched exactly, then semantically) and the arguments the caller intends to send
- * (only their key names take part in matching). The form mirrors the server's rules (public/skill.md
+ * (only their key names take part in matching). The form mirrors the server's rules (SKILL.md
  * section 4) so most mistakes are caught before a request is made.
  */
 import { IdentityError, KeystoreError, UnsupportedBrowserError } from "./identity";

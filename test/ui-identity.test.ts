@@ -30,7 +30,7 @@ import { toHex } from "../src/schema";
 import { MemoryStore, errorResponse, makeIdentity, makeSolver, workerEdge } from "./fixtures/ui-env";
 
 const SEED = Uint8Array.from({ length: 32 }, (_, i) => i);
-const PUBLIC_KEY = "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"; // public key of SEED (public/skill.md section 8)
+const PUBLIC_KEY = "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"; // public key of SEED (SKILL.md section 8)
 const REQUEST_SIGNATURE = "mPAMbWJ24bSAseFFTHQL0zo7UcmAb50J9LjFPHU8jxXuweWXE9J9pdzuOQqHMp4801FXi3SSLKHKRRzmB0t9BA";
 const REQUEST_STRING_INPUT = {
   host: "mom.achromat.ai",

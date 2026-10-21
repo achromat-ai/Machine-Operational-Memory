@@ -10,7 +10,7 @@ account_id = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
 [observability]
 enabled = true
 
-# public/skill.md and the three domain references (fintech.md, industrial_iot.md, devsecops.md) are imported by
+# SKILL.md (repository root) and the three domain references in public/ (fintech.md, industrial_iot.md, devsecops.md) are imported by
 # src/skill.ts and bundled into the Worker as text.
 [[rules]]
 type = "Text"
@@ -20,7 +20,8 @@ fallthrough = true
 # React/Vite SPA built into ui/dist (npm run build). Navigation requests fall
 # back to index.html (so client-side routes such as the review console load the app);
 # only /api/*, the skill documents (/skill.md and the three domain references, src/skill.ts) and everything under
-# /.well-known (the discovery documents in src/discovery.ts, and a JSON 404 for the rest) always reach the Worker first.
+# /.well-known (the discovery documents in src/discovery.ts, the Agent Skills index in src/agent-skills.ts, and a JSON
+# 404 for the rest) always reach the Worker first.
 # The certificate validation paths under /.well-known are excluded below and keep their previous behaviour.
 # Static responses get their CSP from ui/public/_headers.
 [assets]
@@ -34,6 +35,13 @@ run_worker_first = [
   "/industrial_iot.md",
   "/devsecops.md",
   "/robots.txt",
+  # Top-level paths crawlers probe for and that are not published: a strict JSON 404 instead of the SPA shell
+  # (CRAWLER_SHIELD_PATHS in src/discovery.ts).
+  "/llms.txt",
+  "/llms-full.txt",
+  "/sitemap.xml",
+  "/sitemap_index.xml",
+  "/agents.md",
   # The public MCP sandbox (src/routes/mcp.ts). Without this, GET /mcp would get the SPA shell instead of a 405.
   "/mcp",
   # Everything under /.well-known reaches the Worker. That covers the documents src/discovery.ts serves

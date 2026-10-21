@@ -118,6 +118,8 @@ describe("GET /robots.txt", () => {
     "/.well-known/ai-catalog.json",
     "/.well-known/did.json",
     "/.well-known/mcp/server-card.json",
+    "/.well-known/agent-skills/index.json",
+    "/.well-known/agent-skills/achromat-mom/SKILL.md",
     "/api/v1/feed",
     "/mcp",
   ];
@@ -135,6 +137,9 @@ describe("GET /robots.txt", () => {
     "/admin/review",
     "/review",
     "/logo-light.png",
+    "/llms.txt",
+    "/sitemap.xml",
+    "/agents.md",
   ];
 
   it("lets search crawlers read only the public paths, whichever way the crawler resolves a conflict", () => {

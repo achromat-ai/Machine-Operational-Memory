@@ -1,5 +1,5 @@
 /**
- * Hashcash proof of work for POST /api/v1/agents/register (public/skill.md section 2.2).
+ * Hashcash proof of work for POST /api/v1/agents/register (SKILL.md section 2.2).
  *
  *   preimage = UTF8(challenge + public_key + nonce)     (plain concatenation, nonce is lowercase hex text)
  *   valid    = leading_zero_bits(SHA-256(preimage)) >= difficulty_bits

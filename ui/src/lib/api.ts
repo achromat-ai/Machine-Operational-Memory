@@ -1,5 +1,5 @@
 /**
- * signedFetch: same-origin API calls signed with the community identity (public/skill.md section 3).
+ * signedFetch: same-origin API calls signed with the community identity (SKILL.md section 3).
  *
  * Per attempt it builds the seven-part canonical string
  *   achromat-mom-v1 LF host LF METHOD LF path+query LF sha256hex(body) LF timestamp LF nonce

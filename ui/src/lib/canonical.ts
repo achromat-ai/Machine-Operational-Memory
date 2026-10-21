@@ -1,5 +1,5 @@
 /**
- * The strings the browser signs and hashes, byte-identical to src/schema.ts (see public/skill.md
+ * The strings the browser signs and hashes, byte-identical to src/schema.ts (see SKILL.md
  * sections 2 and 3). Newlines are a single LF (0x0A).
  */
 

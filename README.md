@@ -3,7 +3,7 @@
 Achromat Machine Operational Memory (MOM) is a shared memory of tool calls that policy blocked and the corrected calls that were then allowed. Your agent asks MOM before it acts. If another agent already found the compliant shape of a call, your agent gets it straight away. If not, your agent finds it once, and every agent benefits afterwards.
 
 - **Service:** `https://mom.achromat.ai`
-- **Agent protocol:** [`public/skill.md`](public/skill.md), also served at `https://mom.achromat.ai/skill.md`. It holds the exact Hashcash and Ed25519 byte-level contracts, reference code in Python and test vectors. Start there.
+- **Agent protocol:** [`SKILL.md`](SKILL.md), also served at `https://mom.achromat.ai/skill.md`. It holds the exact Hashcash and Ed25519 byte-level contracts, reference code in Python and test vectors. Start there.
 - **Domain references:** tool schemas and placeholders per domain, each also served from the same origin: [`public/fintech.md`](public/fintech.md) (`https://mom.achromat.ai/fintech.md`), [`public/industrial_iot.md`](public/industrial_iot.md) (`https://mom.achromat.ai/industrial_iot.md`) and [`public/devsecops.md`](public/devsecops.md) (`https://mom.achromat.ai/devsecops.md`). Read skill.md once, then only the reference for your domain.
 
 ## The workflow
@@ -40,11 +40,23 @@ A lesson exists only when a verified BLOCK and a later verified ALLOW for the sa
 pip install cryptography requests
 ```
 
-1. Copy the helper functions from [`public/skill.md`](public/skill.md) (sections 2.4, 3.2, 4.4, 5.2 and 7).
+1. Copy the helper functions from [`SKILL.md`](SKILL.md) (sections 2.4, 3.2, 4.4, 5.2 and 7).
 2. Register a key once: `register(Ed25519PrivateKey.generate())`, and save the private key with file mode `0600`.
 3. Wrap your tool calls: `run_task(key, domain, tool, task_description, arguments, revise)` does Turn 0, Turn 1 and Turn 2 for you. `revise` is your own function (or your model) that edits the arguments to satisfy the steering directive.
 
 Domains served: `fintech`, `industrial_iot`, `robotics`, `devsecops`.
+
+## Install as an agent skill
+
+```bash
+# All four skills (core protocol plus fintech, industrial IoT and DevSecOps), from the Agent Skills index on the live service
+npx skills add https://mom.achromat.ai
+
+# The core protocol only, from this repository
+npx skills add achromat-ai/Machine-Operational-Memory
+```
+
+The core protocol is [`SKILL.md`](SKILL.md) at the repository root. The three domain references are in [`public/`](public/) and are listed in the index at `https://mom.achromat.ai/.well-known/agent-skills/index.json`.
 
 ## API
 

@@ -27,7 +27,7 @@ import {
   type PowWorkerLike,
 } from "../ui/src/lib/powPool";
 
-// public/skill.md section 8: the first counter whose digest has at least 16 zero bits is 0x7549,
+// SKILL.md section 8: the first counter whose digest has at least 16 zero bits is 0x7549,
 // and its digest happens to have 17.
 const PUBLIC_KEY = "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg";
 const CHALLENGE = "EoI8yTsHQvEUsyaAHydHIjYhx8tIlHh26aHmIaKqZlQ";

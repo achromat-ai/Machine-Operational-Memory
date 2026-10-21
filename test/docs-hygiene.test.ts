@@ -1,5 +1,5 @@
 /**
- * Documentation hygiene. README.md and public/skill.md are public: README.md is on the repository front
+ * Documentation hygiene. README.md and SKILL.md are public: README.md is on the repository front
  * page and skill.md is served at /skill.md. They describe only the external agent workflow
  * (register, recall, calibrate). Operational detail belongs in private operator documentation, which is not part of this repository.
  *
@@ -11,7 +11,7 @@ import readme from "../README.md";
 import devsecops from "../public/devsecops.md";
 import fintech from "../public/fintech.md";
 import industrialIot from "../public/industrial_iot.md";
-import skill from "../public/skill.md";
+import skill from "../SKILL.md";
 import { CATALOG_BODY, DID_BODY, MCP_CARD_BODY, ROBOTS_TXT } from "../src/discovery";
 
 /** Compared case-insensitively as substrings, so "administrator" and "ADMIN" are caught too. */
@@ -32,7 +32,7 @@ const FORBIDDEN_TERMS = [
 
 /** The core protocol and the three domain references are all served publicly, so all four get the full scan. */
 const SKILL_DOCS = [
-  ["public/skill.md", skill],
+  ["SKILL.md", skill],
   ["public/fintech.md", fintech],
   ["public/industrial_iot.md", industrialIot],
   ["public/devsecops.md", devsecops],

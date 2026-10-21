@@ -1,7 +1,7 @@
 /**
  * Browser crypto primitives (ui/src/lib): base64url, canonical strings, SHA-256 with midstate and the
  * PKCS#8 PEM reader. They are checked against the server's own functions (src/schema.ts), against
- * crypto.subtle, and against the public/skill.md test vectors, so the browser and the Worker cannot drift.
+ * crypto.subtle, and against the SKILL.md test vectors, so the browser and the Worker cannot drift.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -41,7 +41,7 @@ import {
   sha256WordsToBytes,
 } from "../ui/src/lib/sha256";
 
-// The vectors printed in public/skill.md section 8.
+// The vectors printed in SKILL.md section 8.
 const SEED_HEX = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 const PUBLIC_KEY = "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg";
 const CHALLENGE = "EoI8yTsHQvEUsyaAHydHIjYhx8tIlHh26aHmIaKqZlQ";

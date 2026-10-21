@@ -7,7 +7,7 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import entry from "../src/index";
-import skillMarkdown from "../public/skill.md";
+import skillMarkdown from "../SKILL.md";
 import fintechMarkdown from "../public/fintech.md";
 import { anonymiseAgentKey, parseRef, refFromUrl } from "../src/telemetry";
 import { TOOL, TRAP_ARGUMENTS, agentKeyHex } from "./fixtures/ledger";

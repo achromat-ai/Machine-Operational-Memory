@@ -1,7 +1,7 @@
 /**
  * The agent protocol documents, bundled into the Worker as text:
  *
- *   GET /skill.md           the core protocol: identity, request signing, recall and calibrate (public/skill.md)
+ *   GET /skill.md           the core protocol: identity, request signing, recall and calibrate (SKILL.md)
  *   GET /fintech.md         fintech tool schemas and placeholders           (public/fintech.md)
  *   GET /industrial_iot.md  industrial IoT tool schemas and placeholders   (public/industrial_iot.md)
  *   GET /devsecops.md       devsecops tool shapes and placeholders          (public/devsecops.md)
@@ -16,13 +16,17 @@
 import devsecopsMarkdown from "../public/devsecops.md";
 import fintechMarkdown from "../public/fintech.md";
 import industrialIotMarkdown from "../public/industrial_iot.md";
-import skillMarkdown from "../public/skill.md";
+import skillMarkdown from "../SKILL.md";
 import { SECURITY_HEADERS } from "./app";
 
 export const SKILL_PATH = "/skill.md";
 export const FINTECH_PATH = "/fintech.md";
 export const INDUSTRIAL_IOT_PATH = "/industrial_iot.md";
 export const DEVSECOPS_PATH = "/devsecops.md";
+
+/** The Agent Skills discovery directory (src/agent-skills.ts): the index, and one SKILL.md alias per document. */
+export const AGENT_SKILLS_DIR = "/.well-known/agent-skills";
+export const AGENT_SKILLS_INDEX_PATH = `${AGENT_SKILLS_DIR}/index.json`;
 
 /** Every served document by path. The core protocol comes first. */
 export const SKILL_DOCUMENTS: Readonly<Record<string, string>> = Object.freeze({
