@@ -30,7 +30,7 @@ function Layout({ children }: { children: ReactNode }) {
 function Page({ children }: { children: ReactNode }) {
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
-      <h1 className="sr-only">Achromat MOM</h1>
+      <h1 className="sr-only">Achromat Machine Operational Memory</h1>
       {children}
     </div>
   )

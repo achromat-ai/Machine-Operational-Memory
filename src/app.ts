@@ -27,6 +27,7 @@ import { createCalibrateRoutes } from "./routes/calibrate";
 import { FEED_PATH, createFeedRoutes } from "./routes/feed";
 import { MCP_PATH, createMcpRoutes } from "./routes/mcp";
 import { createRecallRoutes } from "./routes/recall";
+import { createSearchRoutes } from "./routes/search";
 import { defaultSearch, type SearchFactory } from "./search/vectors";
 
 /** Same policy as ui/public/_headers, so API and SPA responses match. */
@@ -49,6 +50,7 @@ const PUBLIC_API_ROUTES: ReadonlySet<string> = new Set([
   "POST /api/v1/agents/register",
   "GET /api/v1/feed",
   "HEAD /api/v1/feed",
+  "GET /api/v1/search",
 ]);
 
 export interface AppOptions {
@@ -91,6 +93,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.route("/api/v1/agents", agents);
   app.route(FEED_PATH, createFeedRoutes({ ...(options.feedCacheSeconds === undefined ? {} : { cacheSeconds: options.feedCacheSeconds }) }));
+  // Public natural-language search over approved lessons: no signature, no identity (src/routes/search.ts).
+  app.route("/api/v1/search", createSearchRoutes({ search }));
   // Role-gated on top of the signed gate above: admin only, and admin or internal for the bounty board.
   app.route("/api/v1/admin", createAdminRoutes({ search, receiptKeys: options.receiptKeys ?? RAMEN_RECEIPT_KEYS }));
   app.route("/api/v1/bounties", createBountyRoutes());

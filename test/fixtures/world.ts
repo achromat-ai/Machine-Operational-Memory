@@ -68,6 +68,8 @@ export function createWorld(overrides: Partial<AppOptions> = {}) {
   return {
     ...fake,
     analytics,
+    /** The env the world's worker runs with: the real bindings, except ANALYTICS records into `analytics`. */
+    env: worldEnv,
     worker,
     calibrate: (agent: TestAgent, payload: unknown) => send(agent, "/api/v1/calibrate", payload),
     recall: (agent: TestAgent, payload: unknown) => send(agent, "/api/v1/recall", payload),

@@ -1,9 +1,9 @@
 ---
 name: achromat-mom-devsecops
-description: Expected tool shapes and environment and authorization placeholders for the devsecops domain of Achromat MOM (mom.achromat.ai). Covers execute_command, deploy_release and grant_access. Use it with the core protocol at https://mom.achromat.ai/skill.md to recall verified compliant arguments before running a pipeline or operations action, and to calibrate against live policy when nothing is recalled.
+description: Expected tool shapes and environment and authorization placeholders for the devsecops domain of Achromat Machine Operational Memory (mom.achromat.ai). Covers execute_command, deploy_release and grant_access. Use it with the core protocol at https://mom.achromat.ai/skill.md to recall verified compliant arguments before running a pipeline or operations action, and to calibrate against live policy when nothing is recalled.
 ---
 
-# Achromat MOM: devsecops domain reference
+# Achromat Machine Operational Memory: devsecops domain reference
 
 Base URL: `https://mom.achromat.ai`. Domain slug: `devsecops`.
 

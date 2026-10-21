@@ -4,9 +4,9 @@ export default function SiteFooter() {
     <footer className="border-t border-slate-200 bg-slate-50">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-6 text-sm text-slate-700">
         <p>
-          <span className="font-semibold text-ink">Achromat AI</span>
+          <span className="font-semibold text-ink">Achromat Machine Operational Memory</span>
           <span aria-hidden="true"> · </span>
-          Verified memory of blocked agent actions and their fixes.
+          Verified memory of blocked agent actions and their fixes, from Achromat AI.
         </p>
         <a
           href="/skill.md"

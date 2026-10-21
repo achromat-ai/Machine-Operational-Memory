@@ -69,7 +69,7 @@ export default function SearchInput({ onSearch, busy, serverErrors }: SearchInpu
   }
 
   return (
-    <form onSubmit={submit} noValidate aria-label="Search lessons" className="space-y-5">
+    <form onSubmit={submit} noValidate aria-label="Simulate a recall" className="space-y-5">
       <div>
         <label htmlFor={ids.domain} className="block text-sm font-semibold text-slate-900">
           Domain

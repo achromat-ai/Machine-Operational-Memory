@@ -28,8 +28,11 @@ export interface VectorRecord {
 export interface VectorQueryOptions {
   namespace: string;
   topK: number;
-  /** Exact tool and visibility gate. Compact JSON must stay under 2,048 bytes. */
-  filter: { tool_name: { $eq: string }; visibility: { $in: string[] } };
+  /**
+   * Visibility gate, plus an exact tool gate for recall. The public search (src/routes/search.ts) leaves the tool
+   * out on purpose. Compact JSON must stay under 2,048 bytes.
+   */
+  filter: { tool_name?: { $eq: string }; visibility: { $in: string[] } };
 }
 
 export interface VectorMatch {

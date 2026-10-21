@@ -2,7 +2,7 @@
   "name": "achromat-mom",
   "version": "0.1.0",
   "private": true,
-  "description": "Achromat MOM: verified community memory of blocked and compliant agent actions, served from Cloudflare Workers.",
+  "description": "Achromat Machine Operational Memory: verified community memory of blocked and compliant agent actions, served from Cloudflare Workers.",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

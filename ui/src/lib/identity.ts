@@ -22,6 +22,7 @@ import { serverClock } from "./clock";
 import { browserFetch, observeServerClock, readErrorCode, type FetchLike } from "./http";
 import { createCommunityKey, createKeystore, type CommunityKeyRecord, type Keystore } from "./keystore";
 import type { PowParams } from "./pow";
+import { pageRef, withRef } from "./ref";
 import { signerFromKey, type Signer } from "./signer";
 
 export { UnsupportedBrowserError, KeystoreError } from "./keystore";
@@ -61,6 +62,11 @@ export interface IdentityDeps {
   locks?: LockManagerLike | null;
   /** Key generation. Defaults to createCommunityKey. */
   createKey?: () => Promise<CommunityKeyRecord>;
+  /**
+   * The marketing ref tag sent as `?ref=` on the challenge and register calls, or "" for none (the default:
+   * organic traffic sends no ref). The browser default is the ref in the page URL.
+   */
+  ref?: () => string;
 }
 
 export interface IdentityOptions {
@@ -130,6 +136,7 @@ function parseChallenge(body: unknown): Challenge | null {
 
 export function createIdentityService(deps: IdentityDeps): IdentityService {
   const createKey = deps.createKey ?? (() => createCommunityKey());
+  const ref = deps.ref ?? (() => "");
   let cached: CommunityIdentity | null = null;
   let inflight: Promise<CommunityIdentity> | null = null;
 
@@ -150,7 +157,7 @@ export function createIdentityService(deps: IdentityDeps): IdentityService {
   }
 
   async function fetchChallenge(signal?: AbortSignal): Promise<Challenge> {
-    const response = await send("/api/v1/agents/challenge", { method: "GET", ...(signal ? { signal } : {}) });
+    const response = await send(withRef("/api/v1/agents/challenge", ref()), { method: "GET", ...(signal ? { signal } : {}) });
     if (response.status !== 200) throw registrationError(response.status, await readErrorCode(response));
     let body: unknown;
     try {
@@ -172,7 +179,7 @@ export function createIdentityService(deps: IdentityDeps): IdentityService {
         signal,
       );
       const proof = await signer.sign(utf8(registrationSigningString(challenge.challenge, record.publicKeyB64u)));
-      const response = await send("/api/v1/agents/register", {
+      const response = await send(withRef("/api/v1/agents/register", ref()), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -258,6 +265,7 @@ function defaultIdentity(): IdentityService {
       return solvePow(params, signal ? { signal } : {});
     },
     locks: (globalThis as BrowserGlobals).navigator?.locks ?? null,
+    ref: pageRef,
   }));
 }
 

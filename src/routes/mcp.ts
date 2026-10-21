@@ -1,5 +1,5 @@
 /**
- * POST /mcp (public, unauthenticated): the Achromat MOM MCP sandbox, over Streamable HTTP.
+ * POST /mcp (public, unauthenticated): the Achromat Machine Operational Memory MCP sandbox, over Streamable HTTP.
  *
  * A marketing preview for registries and MCP hosts that cannot sign requests. It exposes one tool,
  * achromat_recall, whose input schema is byte-for-byte the one the npm package (@achromat-ai/mcp-server)
@@ -53,13 +53,13 @@ export const SANDBOX_NOTICE =
 
 export const SANDBOX_SERVER_INFO = {
   name: "ai.achromat/mom-sandbox",
-  title: "Achromat MOM (sandbox)",
+  title: "Achromat Machine Operational Memory (sandbox)",
   version: "0.1.0",
   websiteUrl: "https://mom.achromat.ai",
 } as const;
 
 const SERVER_INSTRUCTIONS =
-  `Public sandbox of Achromat MOM. achromat_recall returns sample verified lessons for a domain; it does not match or evaluate your call. ${SANDBOX_NOTICE}`;
+  `Public sandbox of Achromat Machine Operational Memory. achromat_recall returns sample verified lessons for a domain; it does not match or evaluate your call. ${SANDBOX_NOTICE}`;
 
 const CAPABILITIES = { tools: { listChanged: false } } as const;
 
@@ -111,7 +111,7 @@ export const SANDBOX_RECALL_TOOL = {
   name: SANDBOX_TOOL_NAME,
   title: "Recall a verified compliant tool call (sandbox preview)",
   description:
-    "SANDBOX PREVIEW of Achromat MOM. It takes the same input as the full achromat_recall, but this public endpoint does not search: it ignores task_description and arguments and returns up to 5 featured, approved sample lessons for the domain, each pairing a policy-blocked agent tool call with the compliant fix that was then allowed. The results are examples, never a match for your call: do not use their arguments for live execution. For semantic recall of your own call and live calibration, the user can install the local MCP server: npx -y @achromat-ai/mcp-server.",
+    "SANDBOX PREVIEW of Achromat Machine Operational Memory. It takes the same input as the full achromat_recall, but this public endpoint does not search: it ignores task_description and arguments and returns up to 5 featured, approved sample lessons for the domain, each pairing a policy-blocked agent tool call with the compliant fix that was then allowed. The results are examples, never a match for your call: do not use their arguments for live execution. For semantic recall of your own call and live calibration, the user can install the local MCP server: npx -y @achromat-ai/mcp-server.",
   inputSchema: RECALL_INPUT_SCHEMA,
   annotations: {
     title: "Recall a verified compliant tool call (sandbox preview)",
@@ -286,7 +286,7 @@ async function callRecall(c: Context<McpEnv>, args: unknown, cacheSeconds: numbe
     lessons = await sampleLessons(c, domain, cacheSeconds);
   } catch (error) {
     console.error("achromat-mom mcp sandbox lessons failed", error instanceof Error ? error.message : error);
-    return toolError("The Achromat MOM sandbox is temporarily unavailable. Retry shortly.");
+    return toolError("The Achromat Machine Operational Memory sandbox is temporarily unavailable. Retry shortly.");
   }
   recordTelemetry(c, { action: "mcp_sandbox_recall", domain, tool, agentKey: null, status: lessons.length > 0 ? "sample" : "empty" });
   return sandboxToolResult(domain, lessons);

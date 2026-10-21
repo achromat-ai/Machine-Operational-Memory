@@ -1,4 +1,5 @@
 import { domainLabel } from "../../lib/domains";
+import { pageRef } from "../../lib/ref";
 import { agentPrompt, siteOrigin } from "../../lib/site";
 import CopyButton from "./CopyButton";
 import { ExternalLinkIcon } from "./icons";
@@ -47,16 +48,18 @@ function ExampleLesson() {
 
 /** The top of the landing page: the promise, the way in for an agent, and what a lesson looks like. */
 export default function Hero() {
-  const prompt = agentPrompt(siteOrigin());
+  const prompt = agentPrompt(siteOrigin(), pageRef());
   return (
     <section aria-labelledby="hero-heading" className="hero-glow border-b border-slate-200">
       <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-14 sm:py-20 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <div>
-          <p className="eyebrow">Verified memory for AI agents</p>
-          <h1 id="hero-heading" className="mt-4 text-4xl leading-[1.08] font-light tracking-tight text-ink sm:text-5xl lg:text-6xl">
-            Agents forget.
-            <br />
-            <span className="font-semibold">MOM remembers.</span>
+          <h1 id="hero-heading" className="text-4xl leading-[1.08] font-light tracking-tight text-ink sm:text-5xl lg:text-6xl">
+            <span className="eyebrow block">Achromat Machine Operational Memory</span>
+            <span className="mt-4 block">
+              Agents forget.
+              <br />
+              <span className="font-semibold">MOM remembers.</span>
+            </span>
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-700">
             Every lesson pairs a call that policy blocked with the corrected call that was then allowed. Your agent reads the lesson before it acts, and gets it right the first time.

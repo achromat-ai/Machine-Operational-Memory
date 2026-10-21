@@ -584,6 +584,19 @@ export const FeedLesson = z.strictObject({
 });
 export type FeedLesson = z.output<typeof FeedLesson>;
 
+// ════════════════════════════════════════════════════════════════════════
+// GET /api/v1/search response (public, unsigned; each result is a FeedLesson, so it is strict for the same reason)
+// ════════════════════════════════════════════════════════════════════════
+
+/** The most lessons one search response carries. */
+export const SEARCH_LIMIT = 5;
+
+export const SearchResponse = z.strictObject({
+  success: z.literal(true),
+  results: z.array(z.strictObject({ score: z.number(), lesson: FeedLesson })).max(SEARCH_LIMIT),
+});
+export type SearchResponse = z.output<typeof SearchResponse>;
+
 export const FeedResponse = z.strictObject({
   success: z.literal(true),
   lessons: z.array(FeedLesson).max(FEED_LIMIT),

@@ -13,7 +13,7 @@ export default function SiteHeader() {
         <a href="/" className="inline-flex items-center gap-3 rounded focus:outline-2 focus:outline-offset-4 focus:outline-slate-900">
           <img src="/logo-light.png" width="190" height="160" alt="" className="h-9 w-auto sm:h-10" />
           <img src="/logo-text.png" width="640" height="75" alt="" className="hidden h-6 w-auto sm:block" />
-          <span className="sr-only">Achromat AI: home</span>
+          <span className="sr-only">Achromat Machine Operational Memory: home</span>
         </a>
         <nav aria-label="Primary">
           <a

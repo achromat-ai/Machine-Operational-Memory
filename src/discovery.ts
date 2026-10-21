@@ -96,7 +96,7 @@ export const MCP_REMOTE_URL = `${SITE_ORIGIN}${MCP_PATH}`;
 export const MCP_SERVER_CARD = {
   $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
   name: "ai.achromat/mcp-server",
-  title: "Achromat MOM",
+  title: "Achromat Machine Operational Memory",
   description: "Policy lessons for agent tool calls: a public sandbox here, full recall and calibrate via npm.",
   version: MCP_SERVER_VERSION,
   websiteUrl: SITE_ORIGIN,
@@ -174,7 +174,7 @@ export type CatalogEntry = {
 const SKILL_ENTRIES: readonly CatalogEntry[] = [
   {
     identifier: "urn:air:mom.achromat.ai:skill:achromat-mom",
-    displayName: "Achromat MOM",
+    displayName: "Achromat Machine Operational Memory",
     type: AGENT_SKILL_TYPE,
     url: `${SITE_ORIGIN}${SKILL_PATH}`,
     description:
@@ -204,7 +204,7 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
   // They build on the base entry above: identity, signing, recall and calibrate are in the core protocol.
   {
     identifier: "urn:air:mom.achromat.ai:skill:achromat-mom-fintech",
-    displayName: "Achromat MOM for fintech",
+    displayName: "Achromat Machine Operational Memory for fintech",
     type: AGENT_SKILL_TYPE,
     url: `${SITE_ORIGIN}${FINTECH_PATH}`,
     description:
@@ -224,7 +224,7 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
   },
   {
     identifier: "urn:air:mom.achromat.ai:skill:achromat-mom-industrial-iot",
-    displayName: "Achromat MOM for industrial IoT",
+    displayName: "Achromat Machine Operational Memory for industrial IoT",
     type: AGENT_SKILL_TYPE,
     url: `${SITE_ORIGIN}${INDUSTRIAL_IOT_PATH}`,
     description:
@@ -244,7 +244,7 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
   },
   {
     identifier: "urn:air:mom.achromat.ai:skill:achromat-mom-devsecops",
-    displayName: "Achromat MOM for DevSecOps",
+    displayName: "Achromat Machine Operational Memory for DevSecOps",
     type: AGENT_SKILL_TYPE,
     url: `${SITE_ORIGIN}${DEVSECOPS_PATH}`,
     description:
@@ -278,13 +278,13 @@ const AI_SKILL_ENTRIES: readonly CatalogEntry[] = SKILL_ENTRIES.map((entry) => (
 
 const MCP_ENTRY: CatalogEntry = {
   identifier: "urn:air:mom.achromat.ai:server:achromat-mom-mcp",
-  displayName: "Achromat MOM MCP server",
+  displayName: "Achromat Machine Operational Memory MCP server",
   type: MCP_CARD_TYPE,
   // The server card, not the npm page: `url` addresses the artifact document. The package is named in the card.
   url: `${SITE_ORIGIN}${MCP_CARD_PATH}`,
   version: MCP_SERVER_VERSION,
   description:
-    "Achromat MOM over MCP. A public Streamable HTTP sandbox at /mcp (no authentication) returns sample verified lessons through achromat_recall; the full npm server (stdio) gives any MCP host recall and calibrate tools.",
+    "Achromat Machine Operational Memory over MCP. A public Streamable HTTP sandbox at /mcp (no authentication) returns sample verified lessons through achromat_recall; the full npm server (stdio) gives any MCP host recall and calibrate tools.",
   capabilities: ["RecallCompliantArguments", "CalibratePolicy", "RegisterIdentity", "RecallSampleLessons"],
   representativeQueries: [
     "add policy-checked memory of blocked tool calls to my MCP host",
@@ -309,7 +309,7 @@ const MCP_ENTRY: CatalogEntry = {
 
 const FEED_ENTRY: CatalogEntry = {
   identifier: "urn:air:mom.achromat.ai:feed:approved-lessons",
-  displayName: "Achromat MOM approved lessons",
+  displayName: "Achromat Machine Operational Memory approved lessons",
   type: "application/json",
   url: `${SITE_ORIGIN}${FEED_PATH}`,
   description: "The newest approved lessons: each pairs a policy-blocked tool call with the compliant fix that was then allowed.",

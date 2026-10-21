@@ -21,6 +21,7 @@ import type { Env } from "../env";
 import { apiError, parseJsonBytes, readBodyBytes } from "../http";
 import type { AuthVariables } from "../middleware/auth";
 import { callerNetwork } from "../network";
+import { recordTelemetry, refFromUrl } from "../telemetry";
 import {
   AgentRegistration,
   POW_ALGORITHM,
@@ -99,6 +100,16 @@ agents.get("/challenge", async (c) => {
   )
     .bind(challengeId, challenge, POW_ALGORITHM, bits, network.prefixHmac, issuedAt, expiresAt)
     .run();
+
+  // Funnel step 2 (after skill_view): only challenges that were actually issued are counted.
+  recordTelemetry(c, {
+    action: "challenge_issued",
+    domain: "",
+    tool: "",
+    agentKey: null,
+    status: "issued",
+    ref: refFromUrl(c.req.url),
+  });
 
   return c.json({
     success: true,
@@ -239,6 +250,16 @@ agents.post("/register", async (c) => {
     if (conflict) return apiError(c, conflict.status, conflict.code, conflict.message);
     throw error;
   }
+
+  // Funnel step 3: carries the new key's anonymised id, which later recall and calibrate points share.
+  recordTelemetry(c, {
+    action: "agent_register",
+    domain: "",
+    tool: "",
+    agentKey,
+    status: "registered",
+    ref: refFromUrl(c.req.url),
+  });
 
   return c.json(
     {

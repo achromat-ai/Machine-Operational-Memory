@@ -80,7 +80,7 @@ export class MemoryVectorStore implements VectorStore {
         (record) =>
           record.namespace === options.namespace &&
           (this.ignoreFilter ||
-            (record.metadata.tool_name === options.filter.tool_name.$eq &&
+            ((options.filter.tool_name === undefined || record.metadata.tool_name === options.filter.tool_name.$eq) &&
               options.filter.visibility.$in.includes(record.metadata.visibility))),
       )
       .map((record) => ({ id: record.id, score: this.scoreOverride.get(record.id) ?? cosine(values, record.values) }))

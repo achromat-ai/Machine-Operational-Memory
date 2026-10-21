@@ -16,10 +16,12 @@ import FeedList from "./public/FeedList";
 import Hero from "./public/Hero";
 import PublicPage from "./public/PublicPage";
 import SearchInput from "./public/SearchInput";
+import SimpleSearch from "./public/SimpleSearch";
 import SiteFooter from "./public/SiteFooter";
 import { createAdminSession } from "../lib/adminSession";
 import { initialFeedState, type FeedLessonView, type FeedState } from "../lib/feed";
 import { initialRecallState, type RecallEntry, type RecallState } from "../lib/recall";
+import { initialSearchState, type SearchState } from "../lib/search";
 
 const TRAP = { amount: 50000, currency: "GBP", approval: { second_approver: null } };
 const FIX = { amount: 50000, currency: "GBP", approval: { second_approver: "ops-lead" } };
@@ -144,6 +146,56 @@ describe("DeltaCard", () => {
     const id = html.match(/<article aria-labelledby="([^"]+)"/)![1];
     expect(html).toContain(`id="${id}"`);
     expect([...html.matchAll(/<section aria-labelledby=/g)]).toHaveLength(2);
+  });
+});
+
+describe("SimpleSearch", () => {
+  const render = (state: Partial<SearchState> = {}) => renderToStaticMarkup(<SimpleSearch onSearch={() => undefined} state={{ ...initialSearchState, ...state }} />);
+
+  it("is one question box and a domain, each with a label, and none of the technical fields", () => {
+    const html = render();
+    for (const label of ["Domain", "What is your agent about to do?"]) expect(html).toContain(label);
+    expect([...html.matchAll(/<label for="([^"]+)"/g)]).toHaveLength(2);
+    for (const [, id] of html.matchAll(/<label for="([^"]+)"/g)) expect(html).toContain(`id="${id}"`);
+    expect(html).toContain('type="search"');
+    expect(html).not.toContain("Tool name");
+    expect(html).not.toContain("JSON");
+    expect([...html.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1])).toEqual(["fintech", "industrial_iot", "robotics", "devsecops"]);
+  });
+
+  it("says it is searching and disables the button while a search runs", () => {
+    const html = render({ phase: "loading" });
+    expect(html).toContain("Searching…");
+    expect(html).toMatch(/<button[^>]*\sdisabled=""/);
+    expect(render()).not.toMatch(/<button[^>]*\sdisabled=""/);
+  });
+
+  it("shows service errors, an empty answer and a found lesson without the blocked call's values", () => {
+    expect(render({ phase: "error", error: { message: "Search is temporarily unavailable. Try again shortly.", fieldErrors: { query: "q must be at least 3 characters" } } })).toContain(
+      "q must be at least 3 characters",
+    );
+    const query = { domain: "fintech", q: "send a wire" } as const;
+    expect(render({ query, results: [] })).toContain("No lesson found");
+    const lesson = {
+      lessonId: "5e5dc086-bfd7-428e-a694-d328d9e0ffa6",
+      domain: "fintech",
+      tool: "dispatch_wire",
+      violationRule: "Dual authorisation for large transfers",
+      steeringDirective: "Add a second approver.",
+      statutoryAnchor: null,
+      compliantArguments: { approval: { second_approver: "ops-lead" } },
+      changedPaths: ["/approval/second_approver"],
+      displayTitle: null,
+      displaySummary: null,
+      featured: false,
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    };
+    const html = render({ query, results: [{ score: 0.71, lesson }] });
+    expect(html).toContain("Dual authorisation for large transfers");
+    expect(html).toContain("Similarity 0.71");
+    expect(html).toContain("dispatch_wire");
+    expect(html).toContain("second_approver");
+    expect(html).not.toContain("Your call");
   });
 });
 
@@ -506,7 +558,7 @@ describe("public page and routing", () => {
     }
   }
 
-  it("serves the live feed at / with a skip link and landmarks, and the search folded away above it", () => {
+  it("serves the plain-language search and the live feed at /, with the structured lookup folded away between them", () => {
     const html = renderAt("/");
     expect(html).toContain('href="#main"');
     expect(html).toContain("Skip to content");
@@ -514,11 +566,16 @@ describe("public page and routing", () => {
     expect(html).toMatch(/<main id="main"/);
     expect(html).toContain("Latest approved lessons");
     expect(html).toContain("Loading the latest lessons");
-    // The form is mounted (so typed text survives a collapse) but hidden behind a labelled toggle.
+    // The default view is the simple search, open and visible.
     expect(html).toContain('aria-label="Search lessons"');
-    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>[\s\S]*?Advanced Agent Search/);
+    expect(html).toContain("What is your agent about to do?");
+    expect(html.indexOf('aria-label="Search lessons"')).toBeLessThan(html.indexOf("Advanced Agent Simulator"));
+    // The JSON form is mounted (so typed text survives a collapse) but hidden behind a labelled toggle.
+    expect(html).toContain('aria-label="Simulate a recall"');
+    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>[\s\S]*?Advanced Agent Simulator/);
     expect(html).toMatch(/<div id="[^"]+" hidden="" class="[^"]*">\s*<p[^>]*>Look up a call you are about to make/);
-    expect(html.indexOf("Advanced Agent Search")).toBeLessThan(html.indexOf("Latest approved lessons"));
+    expect(html.indexOf("Advanced Agent Simulator")).toBeLessThan(html.indexOf("Latest approved lessons"));
+    expect(html).not.toContain("Advanced Agent Search");
   });
 
   it("puts the mark, the wordmark and the agent protocol link (in a new tab) in the global header", () => {
@@ -527,7 +584,7 @@ describe("public page and routing", () => {
       // One home link: both images are decoration, and one always-present text names the link (the wordmark is hidden on small screens).
       expect(header).toMatch(/<a href="\/"[^>]*>\s*<img src="\/logo-light\.png" width="190" height="160" alt=""/);
       expect(header).toMatch(/<img src="\/logo-text\.png" width="640" height="75" alt=""/);
-      expect(header).toContain('<span class="sr-only">Achromat AI: home</span>');
+      expect(header).toContain('<span class="sr-only">Achromat Machine Operational Memory: home</span>');
       expect(header).toMatch(/<nav aria-label="Primary"><a href="\/skill\.md" target="_blank" rel="noopener noreferrer" aria-label="Agent Protocol: \/skill\.md \(opens in a new tab\)"/);
       expect(header).toContain("Agent Protocol: /skill.md");
     }
@@ -539,7 +596,7 @@ describe("public page and routing", () => {
     for (const path of ["/nope", "/admin/review"]) {
       const html = renderAt(path);
       expect((html.match(/<h1[ >]/g) ?? []).length, path).toBe(1);
-      expect(html).toContain('<h1 class="sr-only">Achromat MOM</h1>');
+      expect(html).toContain('<h1 class="sr-only">Achromat Machine Operational Memory</h1>');
       expect(html).toContain("<footer");
     }
   });

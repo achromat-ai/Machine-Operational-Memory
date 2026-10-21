@@ -110,6 +110,13 @@ name = "MCP_LIMITER"
 namespace_id = "1003"
 simple = { limit = 60, period = 60 }
 
+# Per-network limit on the public, unsigned GET /api/v1/search (src/routes/search.ts), keyed the same way.
+# Each request costs one Workers AI embedding and one Vectorize query, so it is stricter than the feed.
+[[ratelimits]]
+name = "SEARCH_LIMITER"
+namespace_id = "1004"
+simple = { limit = 30, period = 60 }
+
 # Secrets (wrangler secret put <NAME>, never vars): IP_HMAC_KEY, POW_CHALLENGE_HMAC_KEY,
 # RAMEN_API_KEY, MOM_ATTESTATION_PRIVATE_KEY, VISIBILITY_KEY.
 [vars]

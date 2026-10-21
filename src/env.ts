@@ -21,6 +21,8 @@ export interface Env {
   FEED_LIMITER: RateLimit;
   /** Per-network limit on the public MCP sandbox, POST /mcp (src/routes/mcp.ts). */
   MCP_LIMITER: RateLimit;
+  /** Per-network limit (30/min) on the public GET /api/v1/search (src/routes/search.ts). */
+  SEARCH_LIMITER: RateLimit;
   /** achromat_mom_telemetry: anonymised /recall and /calibrate usage data points (src/telemetry.ts). */
   ANALYTICS: AnalyticsEngineDataset;
   /** Secret: HMAC key for caller IP prefixes. Raw IPs are never stored. */

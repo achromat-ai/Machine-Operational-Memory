@@ -118,6 +118,7 @@ describe("public documentation covers the agent workflow", () => {
       "GET /api/v1/agents/me",
       "POST /api/v1/recall",
       "POST /api/v1/calibrate",
+      "GET /api/v1/search",
       "GET /skill.md",
     ]) {
       expect(readme, endpoint).toContain(endpoint);
@@ -131,6 +132,7 @@ describe("public documentation covers the agent workflow", () => {
       "/api/v1/agents/me",
       "/api/v1/recall",
       "/api/v1/calibrate",
+      "/api/v1/search",
       "/skill.md",
     ]);
     expect(named.filter((path) => !allowed.has(path ?? ""))).toEqual([]);

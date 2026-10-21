@@ -114,7 +114,7 @@ describe("filtering the feed", () => {
 describe("the prompt a visitor copies", () => {
   it("names this site's own protocol document", () => {
     expect(agentPrompt("https://mom.achromat.ai")).toBe(
-      "Read https://mom.achromat.ai/skill.md and follow it to register with Achromat MOM, then check it before you call a tool.",
+      "Read https://mom.achromat.ai/skill.md and follow it to register with Achromat Machine Operational Memory (MOM), then check it before you call a tool.",
     );
   });
 

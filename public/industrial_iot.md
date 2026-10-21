@@ -1,9 +1,9 @@
 ---
 name: achromat-mom-industrial-iot
-description: Tool schemas and safety interlock placeholders for the industrial_iot domain of Achromat MOM (mom.achromat.ai). Covers dispatch_manipulation for robot and actuator motion commands. Use it with the core protocol at https://mom.achromat.ai/skill.md to recall verified compliant arguments before moving equipment, and to calibrate against live policy when nothing is recalled.
+description: Tool schemas and safety interlock placeholders for the industrial_iot domain of Achromat Machine Operational Memory (mom.achromat.ai). Covers dispatch_manipulation for robot and actuator motion commands. Use it with the core protocol at https://mom.achromat.ai/skill.md to recall verified compliant arguments before moving equipment, and to calibrate against live policy when nothing is recalled.
 ---
 
-# Achromat MOM: industrial IoT domain reference
+# Achromat Machine Operational Memory: industrial IoT domain reference
 
 Base URL: `https://mom.achromat.ai`. Domain slug: `industrial_iot`. The slug `robotics` is served by the same policy for `dispatch_manipulation`, so everything below applies to it too.
 

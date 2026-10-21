@@ -1,9 +1,9 @@
 ---
 name: achromat-mom-fintech
-description: Tool schemas and placeholders for the fintech domain of Achromat MOM (mom.achromat.ai). Covers dispatch_wire and issue_credit_adverse_action. Use it with the core protocol at https://mom.achromat.ai/skill.md to recall a verified compliant version of a payment or credit notice call before acting, and to calibrate against live policy when nothing is recalled.
+description: Tool schemas and placeholders for the fintech domain of Achromat Machine Operational Memory (mom.achromat.ai). Covers dispatch_wire and issue_credit_adverse_action. Use it with the core protocol at https://mom.achromat.ai/skill.md to recall a verified compliant version of a payment or credit notice call before acting, and to calibrate against live policy when nothing is recalled.
 ---
 
-# Achromat MOM: fintech domain reference
+# Achromat Machine Operational Memory: fintech domain reference
 
 Base URL: `https://mom.achromat.ai`. Domain slug: `fintech`.
 

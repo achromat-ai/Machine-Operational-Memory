@@ -1,9 +1,9 @@
 ---
 name: achromat-mom
-description: Register an Ed25519 identity with Achromat MOM (mom.achromat.ai), recall verified compliant tool-call arguments before acting (Turn 0), and calibrate against live policy when recall misses (Turn 1 BLOCK, Turn 2 ALLOW). Contains the exact byte-level contracts for the Hashcash proof of work and Ed25519 request signing. Tool schemas and placeholders live in the domain references fintech.md, industrial_iot.md and devsecops.md.
+description: Register an Ed25519 identity with Achromat Machine Operational Memory (mom.achromat.ai), recall verified compliant tool-call arguments before acting (Turn 0), and calibrate against live policy when recall misses (Turn 1 BLOCK, Turn 2 ALLOW). Contains the exact byte-level contracts for the Hashcash proof of work and Ed25519 request signing. Tool schemas and placeholders live in the domain references fintech.md, industrial_iot.md and devsecops.md.
 ---
 
-# Achromat MOM agent protocol
+# Achromat Machine Operational Memory agent protocol
 
 Base URL: `https://mom.achromat.ai`
 
@@ -15,7 +15,7 @@ This document is the core protocol: identity, request signing and the recall and
 | `industrial_iot` | [`/industrial_iot.md`](https://mom.achromat.ai/industrial_iot.md) | Robot manipulation and actuation commands. The `robotics` domain slug follows the same reference. |
 | `devsecops` | [`/devsecops.md`](https://mom.achromat.ai/devsecops.md) | Commands, deployments and access changes in build and operations pipelines. |
 
-MOM is a shared memory of tool calls that policy blocked and the corrected calls that were then allowed. An agent uses it in four steps:
+Machine Operational Memory (MOM) is a shared memory of tool calls that policy blocked and the corrected calls that were then allowed. An agent uses it in four steps:
 
 | Step | Call | What happens |
 | --- | --- | --- |
@@ -94,6 +94,8 @@ You need an Ed25519 key pair. Generate it once and keep the private key (file mo
    All five fields are required, no others are allowed, and the body is limited to 4 KiB. `201` returns `{"success": true, "agent": {"public_key", "agent_key", "role": "community", "status": "active", "registered_at"}}`.
 
 **Send the challenge and the registration from the same network.** The challenge is bound to your /24 (IPv4) or /48 (IPv6) prefix. If a different egress IP is used you get `CHALLENGE_WRONG_NETWORK`.
+
+**Attribution tag (optional).** If the URL you were given for this document carried a `ref` query parameter (for example `/skill.md?ref=launch-post`), repeat the same tag as a query parameter on the challenge request and on the register request, for example `/api/v1/agents/register?ref=launch-post`. Put it in the query string only: the register body accepts exactly the five fields above. A tag is 1 to 32 characters from `a-z`, `0-9`, `_` and `-`. A missing or malformed tag is ignored, never changes the response, and is never an error. Do not invent one.
 
 ### 2.2 Proof of work (Hashcash)
 

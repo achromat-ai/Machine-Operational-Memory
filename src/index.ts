@@ -5,7 +5,8 @@
  *
  * GET /skill.md (the core agent protocol), the three domain references (/fintech.md, /industrial_iot.md and
  * /devsecops.md, src/skill.ts) and the machine discovery documents (/robots.txt, the ARD catalog, the did:web
- * document and the MCP server card, src/discovery.ts) are routed here, ahead of the app.
+ * document and the MCP server card, src/discovery.ts) are routed here, ahead of the app. Each GET of a protocol
+ * document writes one skill_view telemetry point (src/telemetry.ts) carrying the optional ?ref= tag.
  *
  * The public MCP sandbox (POST /mcp, OPTIONS for CORS, 405 for other methods; src/routes/mcp.ts) is served by
  * the app, like /api/*. wrangler.toml lists /mcp in run_worker_first so a GET never gets the SPA shell.
@@ -16,6 +17,7 @@
 import { createWorker, type MomWorker } from "./app";
 import { discoveryResponse, isCertificateValidationPath, wellKnownNotFound } from "./discovery";
 import { skillDocumentResponse } from "./skill";
+import { recordTelemetryWith, refFromUrl } from "./telemetry";
 
 export { NonceRegistry } from "./durable/nonce-registry";
 export { UsageCounter } from "./durable/usage-counter";
@@ -29,7 +31,20 @@ export default {
     if (isCertificateValidationPath(pathname)) return env.ASSETS.fetch(request);
     if (request.method === "GET" || request.method === "HEAD") {
       const skill = skillDocumentResponse(request.method, pathname);
-      if (skill) return skill;
+      if (skill) {
+        // One skill_view per GET (not HEAD): the document name goes in the domain field, the ?ref= tag in blobs[5].
+        if (request.method === "GET") {
+          recordTelemetryWith(env, ctx, {
+            action: "skill_view",
+            domain: pathname.slice(1),
+            tool: "",
+            agentKey: null,
+            status: "served",
+            ref: refFromUrl(request.url),
+          });
+        }
+        return skill;
+      }
       const discovery = discoveryResponse(request.method, pathname);
       if (discovery) return discovery;
     }
