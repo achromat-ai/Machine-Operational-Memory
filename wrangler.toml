@@ -1,8 +1,10 @@
 name = "achromat-mom"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
-# Replace with your Cloudflare account ID. Pinned here so every wrangler command
-# targets it regardless of which account the CLI session is logged in to.
+# Your Cloudflare account ID. Leave the placeholder in this committed file: set CLOUDFLARE_ACCOUNT_ID (and
+# D1_DATABASE_ID, below) in a local .env, and `npm run deploy` writes the filled-in wrangler.deploy.toml
+# (scripts/deploy-config.mjs, git-ignored) and deploys with it. Pinned so every wrangler command that uses
+# that file targets this account regardless of which account the CLI session is logged in to.
 account_id = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
 
 [observability]
@@ -44,7 +46,8 @@ run_worker_first = [
   "!/.well-known/pki-validation/*",
 ]
 
-# Replace database_id with the ID of your D1 database (npx wrangler d1 create achromat-mom-db).
+# database_id comes from D1_DATABASE_ID in your local .env (the ID `npx wrangler d1 create achromat-mom-db` prints);
+# scripts/deploy-config.mjs fills it in. Leave the placeholder here.
 [[d1_databases]]
 binding = "DB"
 database_name = "achromat-mom-db"
