@@ -1,7 +1,7 @@
 /**
  * The achromat-mom Hono app and Worker handlers.
  *
- * Serves the agent API (/api/*). The admin review queue and the bounty board live under
+ * Serves the agent API (/api/*) and the public MCP sandbox (POST /mcp, src/routes/mcp.ts). The admin review queue and the bounty board live under
  * /api/v1/admin and /api/v1/bounties, so they inherit the signed-request gate (an unsigned
  * /admin/* path would not). Every other path is answered by Workers Static Assets with the
  * React SPA (wrangler.toml [assets], run_worker_first).
@@ -25,6 +25,7 @@ import { agents } from "./routes/agents";
 import { createBountyRoutes } from "./routes/bounties";
 import { createCalibrateRoutes } from "./routes/calibrate";
 import { FEED_PATH, createFeedRoutes } from "./routes/feed";
+import { MCP_PATH, createMcpRoutes } from "./routes/mcp";
 import { createRecallRoutes } from "./routes/recall";
 import { defaultSearch, type SearchFactory } from "./search/vectors";
 
@@ -59,6 +60,8 @@ export interface AppOptions {
   recallDailyDistinctLessons?: number;
   /** Edge cache lifetime of GET /api/v1/feed in seconds. Default 30; tests pass 0 because they share one D1. */
   feedCacheSeconds?: number;
+  /** Edge cache lifetime of the MCP sandbox's sample lessons in seconds. Default 300; tests pass 0. */
+  mcpCacheSeconds?: number;
 }
 
 export function createApp(options: AppOptions = {}) {
@@ -99,6 +102,9 @@ export function createApp(options: AppOptions = {}) {
       ...(options.recallDailyDistinctLessons === undefined ? {} : { dailyDistinctLessons: options.recallDailyDistinctLessons }),
     }),
   );
+
+  // Public MCP sandbox (Streamable HTTP). Outside /api/v1, so the signed gate never applies to it.
+  app.route(MCP_PATH, createMcpRoutes({ ...(options.mcpCacheSeconds === undefined ? {} : { cacheSeconds: options.mcpCacheSeconds }) }));
 
   app.notFound((c) => c.json({ success: false, error: "not found" }, 404));
 

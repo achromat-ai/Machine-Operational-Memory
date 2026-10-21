@@ -7,6 +7,9 @@
  * /devsecops.md, src/skill.ts) and the machine discovery documents (/robots.txt, the ARD catalog, the did:web
  * document and the MCP server card, src/discovery.ts) are routed here, ahead of the app.
  *
+ * The public MCP sandbox (POST /mcp, OPTIONS for CORS, 405 for other methods; src/routes/mcp.ts) is served by
+ * the app, like /api/*. wrangler.toml lists /mcp in run_worker_first so a GET never gets the SPA shell.
+ *
  * Any other /.well-known path gets a JSON 404 (wellKnownNotFound), for every method, instead of the SPA shell.
  * Certificate validation paths are the exception: they go to the static assets exactly as they did before.
  */

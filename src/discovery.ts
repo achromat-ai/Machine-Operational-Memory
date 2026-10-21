@@ -6,7 +6,8 @@
  *   GET /.well-known/ard.json                the catalog, at the path ARD v0.91 names
  *   GET /.well-known/ai-catalog.json         the same bytes, at ARD's predecessor path (still read by some clients)
  *   GET /.well-known/did.json                the did:web document that the catalog's trustManifest points at
- *   GET /.well-known/mcp/server-card.json    the MCP server card that the catalog's MCP entry points at
+ *   GET /.well-known/mcp/server-card.json    the MCP server card that the catalog's MCP entry points at; its
+ *                                            `remotes` names the public sandbox at POST /mcp (src/routes/mcp.ts)
  *   any /.well-known/<anything else>         404 with a JSON body (never the SPA shell)
  *
  * All of them are public and static. src/index.ts routes them ahead of the Hono app, and wrangler.toml lists
@@ -19,6 +20,7 @@
  * every other path out of crawlers' reach without naming any of them in a public file.
  */
 import { SECURITY_HEADERS } from "./app";
+import { MCP_PATH } from "./routes/mcp";
 import { DEVSECOPS_PATH, FINTECH_PATH, INDUSTRIAL_IOT_PATH, SKILL_PATH, SKILL_PATHS } from "./skill";
 
 export const ROBOTS_PATH = "/robots.txt";
@@ -83,19 +85,23 @@ export const MCP_PACKAGE = "@achromat-ai/mcp-server";
 /** Keep in step with the published npm package. */
 export const MCP_SERVER_VERSION = "0.1.1";
 
+/** The public MCP sandbox on this origin (src/routes/mcp.ts): Streamable HTTP, no authentication. */
+export const MCP_REMOTE_URL = `${SITE_ORIGIN}${MCP_PATH}`;
+
 /**
- * A card describes how a client reaches a server. This server is a local stdio package and has no remote
- * endpoint, so there is no `remotes`. The npm install details sit in a vendor-namespaced `_meta` key, which is
- * the card format's own extension point.
+ * A card describes how a client reaches a server. This origin hosts one remote endpoint, the public sandbox
+ * (`remotes`: Streamable HTTP, no auth, sample lessons through achromat_recall only). The full server is the local
+ * stdio npm package; its install details sit in a vendor-namespaced `_meta` key, the card format's own extension point.
  */
 export const MCP_SERVER_CARD = {
   $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
   name: "ai.achromat/mcp-server",
   title: "Achromat MOM",
-  description: "Recall and calibrate agent tool calls against verified policy lessons from Achromat MOM.",
+  description: "Policy lessons for agent tool calls: a public sandbox here, full recall and calibrate via npm.",
   version: MCP_SERVER_VERSION,
   websiteUrl: SITE_ORIGIN,
   icons: [{ src: `${SITE_ORIGIN}/logo-light.png`, mimeType: "image/png", theme: "light" }],
+  remotes: [{ type: "streamable-http", url: MCP_REMOTE_URL }],
   _meta: {
     "ai.achromat/distribution": {
       registryType: "npm",
@@ -130,6 +136,8 @@ export const ROBOTS_TXT =
     `Allow: ${DID_PATH}`,
     `Allow: ${MCP_CARD_PATH}`,
     `Allow: ${FEED_PATH}`,
+    // The public MCP sandbox, exactly (the $ keeps any longer path under the Disallow below).
+    `Allow: ${MCP_PATH}$`,
     "Disallow: /",
     "",
     `Agentmap: ${SITE_ORIGIN}${ARD_PATH}`,
@@ -275,19 +283,26 @@ const MCP_ENTRY: CatalogEntry = {
   // The server card, not the npm page: `url` addresses the artifact document. The package is named in the card.
   url: `${SITE_ORIGIN}${MCP_CARD_PATH}`,
   version: MCP_SERVER_VERSION,
-  description: "MCP server (npm, stdio) that gives any MCP host recall and calibrate tools backed by Achromat MOM.",
-  capabilities: ["RecallCompliantArguments", "CalibratePolicy", "RegisterIdentity"],
+  description:
+    "Achromat MOM over MCP. A public Streamable HTTP sandbox at /mcp (no authentication) returns sample verified lessons through achromat_recall; the full npm server (stdio) gives any MCP host recall and calibrate tools.",
+  capabilities: ["RecallCompliantArguments", "CalibratePolicy", "RegisterIdentity", "RecallSampleLessons"],
   representativeQueries: [
     "add policy-checked memory of blocked tool calls to my MCP host",
     "install an MCP server that recalls the compliant version of a tool call",
     "check an agent tool call against live policy from Claude Desktop",
+    "try a remote MCP server with sample compliance lessons without installing anything",
   ],
-  tags: ["mcp", "agent-memory", "policy", "compliance", "npm", "stdio"],
+  tags: ["mcp", "agent-memory", "policy", "compliance", "npm", "stdio", "streamable-http", "remote"],
+  // Scalars only (ARD). The package* keys describe the npm server, the remote* keys the sandbox on this origin.
   metadata: {
     npmPackage: MCP_PACKAGE,
     packageRegistry: "npm",
-    transport: "stdio",
+    packageTransport: "stdio",
     command: `npx -y ${MCP_PACKAGE}`,
+    remoteUrl: MCP_REMOTE_URL,
+    remoteTransport: "streamable-http",
+    remoteAuthentication: "none",
+    remoteScope: "sandbox: sample approved lessons through achromat_recall only",
     coreProtocol: `${SITE_ORIGIN}${SKILL_PATH}`,
   },
 };

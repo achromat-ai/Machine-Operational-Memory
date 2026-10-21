@@ -32,6 +32,8 @@ run_worker_first = [
   "/industrial_iot.md",
   "/devsecops.md",
   "/robots.txt",
+  # The public MCP sandbox (src/routes/mcp.ts). Without this, GET /mcp would get the SPA shell instead of a 405.
+  "/mcp",
   # Everything under /.well-known reaches the Worker. That covers the documents src/discovery.ts serves
   # (ard.json, ai-catalog.json, did.json, mcp/server-card.json; wrangler rejects patterns a wildcard makes redundant,
   # so they are not listed one by one) and gives every other path a JSON 404 instead of the SPA shell.
@@ -97,6 +99,12 @@ simple = { limit = 10, period = 60 }
 [[ratelimits]]
 name = "FEED_LIMITER"
 namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
+# Per-network limit on the public MCP sandbox, POST /mcp (src/routes/mcp.ts), keyed the same way.
+[[ratelimits]]
+name = "MCP_LIMITER"
+namespace_id = "1003"
 simple = { limit = 60, period = 60 }
 
 # Secrets (wrangler secret put <NAME>, never vars): IP_HMAC_KEY, POW_CHALLENGE_HMAC_KEY,

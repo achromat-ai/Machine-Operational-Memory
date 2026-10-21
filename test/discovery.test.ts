@@ -119,8 +119,11 @@ describe("GET /robots.txt", () => {
     "/.well-known/did.json",
     "/.well-known/mcp/server-card.json",
     "/api/v1/feed",
+    "/mcp",
   ];
   const PRIVATE = [
+    "/mcp/anything",
+    "/mcpx",
     "/api/v1/admin",
     "/api/v1/admin/pending",
     "/api/v1/bounties",
@@ -510,9 +513,8 @@ describe("GET /.well-known/mcp/server-card.json", () => {
     for (const icon of card.icons) expect(icon.src.startsWith(`${SITE_ORIGIN}/`)).toBe(true);
   });
 
-  it("describes a local stdio npm package honestly: no remote endpoint, install details in a vendor-namespaced _meta key", () => {
-    const card = MCP_SERVER_CARD as Record<string, unknown>;
-    expect("remotes" in card).toBe(false);
+  it("names the public sandbox as its one remote, and the npm package in a vendor-namespaced _meta key", () => {
+    expect(MCP_SERVER_CARD.remotes).toEqual([{ type: "streamable-http", url: `${SITE_ORIGIN}/mcp` }]);
     const meta = MCP_SERVER_CARD._meta;
     expect(Object.keys(meta)).toEqual(["ai.achromat/distribution"]);
     // a _meta prefix with an 'mcp' or 'modelcontextprotocol' label is reserved for MCP itself
@@ -564,7 +566,11 @@ describe("the expanded ARD catalog", () => {
     expect(entry.url).toBe(`${SITE_ORIGIN}${MCP_CARD_PATH}`);
     expect(entry.version).toBe(MCP_SERVER_CARD.version);
     expect(entry.metadata?.npmPackage).toBe(MCP_SERVER_CARD._meta["ai.achromat/distribution"].identifier);
-    expect(entry.metadata?.transport).toBe("stdio");
+    expect(entry.metadata?.packageTransport).toBe("stdio");
+    expect(entry.metadata?.remoteUrl).toBe(MCP_SERVER_CARD.remotes[0]!.url);
+    expect(entry.metadata?.remoteTransport).toBe(MCP_SERVER_CARD.remotes[0]!.type);
+    expect(entry.metadata?.remoteAuthentication).toBe("none");
+    expect(entry.tags).toContain("streamable-http");
     expect(entry.tags).toContain("mcp");
     expect("data" in entry).toBe(false);
   });

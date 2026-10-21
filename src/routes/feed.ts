@@ -31,7 +31,8 @@ export interface FeedOptions {
   cacheSeconds?: number;
 }
 
-interface FeedRow {
+/** One public lesson row, as the feed and the MCP sandbox (src/routes/mcp.ts) read it. */
+export interface FeedRow {
   lesson_id: string;
   domain: string;
   tool_name: string;
@@ -46,8 +47,11 @@ interface FeedRow {
   statutory_anchor: string | null;
 }
 
-/** Uses lesson_state_by_status (review_status, updated_at_ms); only ties on updated_at_ms are sorted. */
-const FEED_SQL = `
+/**
+ * The public columns of an approved, publicly visible lesson. Never the blocked call's values, receipts or
+ * attestation. Callers append their own ORDER BY and LIMIT.
+ */
+export const PUBLIC_LESSON_SQL = `
 SELECT l.lesson_id, l.domain, l.tool_name, l.violation_rule, l.changed_paths_json,
        s.display_title, s.display_summary, s.featured, s.updated_at_ms,
        f.fix_arguments_json,
@@ -56,11 +60,14 @@ SELECT l.lesson_id, l.domain, l.tool_name, l.violation_rule, l.changed_paths_jso
   JOIN lessons l     ON l.lesson_id = s.lesson_id
   JOIN fixes f       ON f.allow_receipt_id = l.fix_event_id
   JOIN trap_events e ON e.block_receipt_id = l.trap_event_id
- WHERE s.review_status = 'approved' AND s.visibility = 'public'
+ WHERE s.review_status = 'approved' AND s.visibility = 'public'`;
+
+/** Uses lesson_state_by_status (review_status, updated_at_ms); only ties on updated_at_ms are sorted. */
+const FEED_SQL = `${PUBLIC_LESSON_SQL}
  ORDER BY s.updated_at_ms DESC, l.lesson_id DESC
  LIMIT ?1`;
 
-function present(row: FeedRow) {
+export function presentPublicLesson(row: FeedRow) {
   return {
     lesson_id: row.lesson_id,
     domain: row.domain,
@@ -116,7 +123,7 @@ export function createFeedRoutes(options: FeedOptions = {}) {
     }
 
     const rows = await c.env.DB.prepare(FEED_SQL).bind(FEED_LIMIT).all<FeedRow>();
-    const body = JSON.stringify(FeedResponse.parse({ success: true, lessons: rows.results.map(present) }));
+    const body = JSON.stringify(FeedResponse.parse({ success: true, lessons: rows.results.map(presentPublicLesson) }));
 
     if (cache) {
       const store = cache

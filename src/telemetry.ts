@@ -1,13 +1,13 @@
 /**
  * API consumption telemetry: one Workers Analytics Engine data point per answered /recall or /calibrate
- * request (dataset achromat_mom_telemetry, binding ANALYTICS).
+ * request, and per sandbox achromat_recall call on POST /mcp (dataset achromat_mom_telemetry, binding ANALYTICS).
  *
  *   doubles[0]  1 (request count; sum it, weighted by _sample_interval)
- *   blobs[0]    action: recall | calibrate_trap | calibrate_fix
+ *   blobs[0]    action: recall | calibrate_trap | calibrate_fix | mcp_sandbox_recall
  *   blobs[1]    domain
  *   blobs[2]    tool_name
- *   blobs[3]    anonymised agent id (see anonymiseAgentKey)
- *   blobs[4]    status: hit | miss | budget_exhausted (recall), allow | block (calibrate)
+ *   blobs[3]    anonymised agent id (see anonymiseAgentKey), or "anonymous" for the public MCP sandbox
+ *   blobs[4]    status: hit | miss | budget_exhausted (recall), allow | block (calibrate), sample | empty (sandbox)
  *   indexes[0]  the anonymised agent id, so sampling keeps each agent's requests together
  *
  * Only these fields are written: never the raw Ed25519 key, task descriptions, arguments or IPs.
@@ -17,15 +17,18 @@ import type { Context } from "hono";
 import type { Env } from "./env";
 import { sha256Hex } from "./schema";
 
-export type TelemetryAction = "recall" | "calibrate_trap" | "calibrate_fix";
-export type TelemetryStatus = "hit" | "miss" | "budget_exhausted" | "allow" | "block";
+export type TelemetryAction = "recall" | "calibrate_trap" | "calibrate_fix" | "mcp_sandbox_recall";
+export type TelemetryStatus = "hit" | "miss" | "budget_exhausted" | "allow" | "block" | "sample" | "empty";
+
+/** The agent id written for unauthenticated callers (the public MCP sandbox), which have no key. */
+export const ANONYMOUS_AGENT_ID = "anonymous";
 
 export interface TelemetryEvent {
   action: TelemetryAction;
   domain: string;
   tool: string;
-  /** The caller's raw agent key. Hashed before it is written. */
-  agentKey: string;
+  /** The caller's raw agent key, hashed before it is written. null for unauthenticated callers. */
+  agentKey: string | null;
   status: TelemetryStatus;
 }
 
@@ -43,7 +46,7 @@ export async function anonymiseAgentKey(agentKey: string): Promise<string> {
 /** Writes one data point. Never throws: a telemetry failure is logged and otherwise ignored. */
 export async function writeTelemetry(env: Env, event: TelemetryEvent): Promise<void> {
   try {
-    const agentId = await anonymiseAgentKey(event.agentKey);
+    const agentId = event.agentKey === null ? ANONYMOUS_AGENT_ID : await anonymiseAgentKey(event.agentKey);
     env.ANALYTICS.writeDataPoint({
       indexes: [agentId],
       blobs: [event.action, event.domain, event.tool, agentId, event.status],
