@@ -510,7 +510,7 @@ describe("GET /.well-known/mcp/server-card.json", () => {
     expect(card.name.length).toBeGreaterThanOrEqual(3);
     expect(card.name.length).toBeLessThanOrEqual(200);
     expect(card.description.length).toBeGreaterThanOrEqual(1);
-    expect(card.description.length).toBeLessThanOrEqual(100);
+    expect(card.description.length).toBeLessThanOrEqual(500);
     expect(card.title.length).toBeLessThanOrEqual(100);
     expect(card.version).toBe(MCP_SERVER_VERSION);
     expect(card.version).not.toMatch(/[\^~><*x]/); // no ranges

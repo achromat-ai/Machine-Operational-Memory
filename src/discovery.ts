@@ -85,7 +85,7 @@ export const TRUST_MANIFEST = {
 
 export const MCP_PACKAGE = "@achromat-ai/mcp-server";
 /** Keep in step with the published npm package. */
-export const MCP_SERVER_VERSION = "0.1.1";
+export const MCP_SERVER_VERSION = "0.1.2";
 
 /** The public MCP sandbox on this origin (src/routes/mcp.ts): Streamable HTTP, no authentication. */
 export const MCP_REMOTE_URL = `${SITE_ORIGIN}${MCP_PATH}`;
@@ -99,7 +99,8 @@ export const MCP_SERVER_CARD = {
   $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
   name: "ai.achromat/mcp-server",
   title: "Achromat Machine Operational Memory",
-  description: "Policy lessons for agent tool calls: a public sandbox here, full recall and calibrate via npm.",
+  description:
+    "Achromat Machine Operational Memory recalls compliant tool-call arguments for fintech payments and credit decisions, industrial and robotics actuation, and DevSecOps commands, deployments and access changes. The public sandbox returns sample lessons; the npm server provides full recall and calibration. It does not execute the underlying business tool.",
   version: MCP_SERVER_VERSION,
   websiteUrl: SITE_ORIGIN,
   icons: [{ src: `${SITE_ORIGIN}/logo-light.png`, mimeType: "image/png", theme: "light" }],
