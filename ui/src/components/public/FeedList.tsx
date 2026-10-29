@@ -20,7 +20,7 @@ function Skeleton() {
           </div>
         ))}
       </div>
-      <p className="border-t border-slate-200 px-4 py-3 text-sm text-slate-700">Loading the latest lessons…</p>
+      <p className="border-t border-slate-200 px-4 py-3 text-sm text-slate-700">Retrieving blueprints…</p>
     </div>
   );
 }
@@ -46,7 +46,8 @@ export interface FeedListProps {
 }
 
 /**
- * The live feed of approved lessons: loading, error, empty and populated states. The newest lessons are
+ * The directory of approved lessons ("Verified Compliance Blueprints"): loading, error, empty and populated
+ * states. It carries no dates or recency wording on purpose. The lessons the server sends are
  * filtered in the browser by domain and by a text box; only a short count line is announced, so typing in the
  * box does not read the whole list out again.
  */
@@ -62,9 +63,9 @@ export default function FeedList({ state, onRefresh }: FeedListProps) {
     <section aria-labelledby="feed-heading" aria-busy={busy} className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="eyebrow">Live feed</p>
+          <p className="eyebrow">Operational Memory</p>
           <h2 id="feed-heading" className="mt-1 text-2xl font-semibold tracking-tight text-ink">
-            Latest approved lessons
+            Verified Compliance Blueprints
           </h2>
         </div>
         <button type="button" onClick={onRefresh} disabled={busy} className={BUTTON}>
@@ -126,7 +127,7 @@ export default function FeedList({ state, onRefresh }: FeedListProps) {
       {state.phase === "ready" && state.lessons.length === 0 ? (
         <div className="rounded-lg border border-slate-200 bg-white px-5 py-6">
           <p className="text-base font-semibold text-slate-900">No approved lessons yet</p>
-          <p className="mt-1 text-sm text-slate-700">New lessons appear here as soon as they are approved.</p>
+          <p className="mt-1 text-sm text-slate-700">No blueprints match this domain filter.</p>
         </div>
       ) : null}
 

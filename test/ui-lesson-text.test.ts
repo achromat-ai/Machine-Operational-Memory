@@ -20,7 +20,6 @@ function lesson(over: Partial<FeedLessonView> = {}): FeedLessonView {
     displayTitle: null,
     displaySummary: null,
     featured: false,
-    updatedAt: "2026-10-10T12:00:00.000Z",
     ...over,
   };
 }

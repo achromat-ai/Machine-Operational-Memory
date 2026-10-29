@@ -12,7 +12,7 @@ const TOGGLE =
   "inline-flex min-h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50 focus:outline-2 focus:outline-offset-2 focus:outline-slate-900";
 
 /**
- * The landing page: the hero, a plain-language search, then the live feed of approved lessons. None of these needs an
+ * The landing page: the hero, a plain-language search, then the directory of approved lessons. None of these needs an
  * identity. The structured, signed lookup by tool name and arguments sits in a collapsed "Advanced Agent Simulator"
  * panel. The panel is always mounted and only hidden, so what was typed survives a collapse, and it opens by itself
  * when an advanced search runs.

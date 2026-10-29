@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { buildDeltaRows, splitRows } from "../../lib/delta";
 import { domainLabel } from "../../lib/domains";
-import { relativeTime, type FeedLessonView } from "../../lib/feed";
+import type { FeedLessonView } from "../../lib/feed";
 import { cardAnchor, changedFieldLabels, lessonHeading, lessonIdFromHash, rowAnchor, splitSteering, toolSegments } from "../../lib/lessonText";
 import CopyButton from "./CopyButton";
 import { DeltaPanel, ValueText } from "./DeltaPanel";
@@ -89,9 +89,7 @@ function LessonDetail({ lesson }: { lesson: FeedLessonView }) {
             {lesson.statutoryAnchor}
           </p>
         ) : null}
-        <p className="text-xs text-slate-600">
-          Updated <time dateTime={lesson.updatedAt}>{relativeTime(lesson.updatedAt)}</time>. The values of the call that was originally blocked are not published.
-        </p>
+        <p className="text-xs text-slate-600">The values of the call that was originally blocked are not published.</p>
       </div>
 
       <div className="min-w-0 space-y-3">
@@ -204,9 +202,6 @@ export default function FeedTable({ lessons, labelledBy }: FeedTableProps) {
                     <div className="flex flex-col items-start gap-1.5">
                       <DomainPill domain={lesson.domain} />
                       {lesson.featured ? <FeaturedBadge /> : null}
-                      <time dateTime={lesson.updatedAt} className="text-xs text-slate-600">
-                        {relativeTime(lesson.updatedAt)}
-                      </time>
                     </div>
                   </td>
                   <td className="px-4 py-3">
@@ -243,9 +238,6 @@ export default function FeedTable({ lessons, labelledBy }: FeedTableProps) {
               <div className="flex flex-wrap items-center gap-2">
                 <DomainPill domain={lesson.domain} />
                 {lesson.featured ? <FeaturedBadge /> : null}
-                <time dateTime={lesson.updatedAt} className="ml-auto text-xs text-slate-600">
-                  {relativeTime(lesson.updatedAt)}
-                </time>
               </div>
               <div className="mt-3">
                 <ToolChip tool={lesson.tool} />

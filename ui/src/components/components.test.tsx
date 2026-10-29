@@ -187,7 +187,6 @@ describe("SimpleSearch", () => {
       displayTitle: null,
       displaySummary: null,
       featured: false,
-      updatedAt: "2026-10-01T00:00:00.000Z",
     };
     const html = render({ query, results: [{ score: 0.71, lesson }] });
     expect(html).toContain("Policy violation: dispatch_wire"); // no anchor and no title: the generic heading
@@ -337,7 +336,6 @@ describe("FeedList", () => {
     displayTitle: null,
     displaySummary: null,
     featured: false,
-    updatedAt: "2026-10-10T12:00:00.000Z",
   };
   const ready = (lessons: FeedLessonView[], over: Partial<FeedState> = {}): FeedState => ({ ...initialFeedState, phase: "ready", lessons, ...over });
   /** Renders with a stubbed `window` so the page can be opened on a `#lesson-<id>` link, as a visitor's browser would. */
@@ -358,7 +356,8 @@ describe("FeedList", () => {
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('role="status"');
     expect(html).toContain("motion-reduce:animate-none");
-    expect(html).toContain("Loading the latest lessons");
+    expect(html).toContain("Retrieving blueprints…");
+    expect(html).not.toContain("latest lessons");
     expect(html).toMatch(/<button[^>]*\sdisabled=""/);
     expect(html).not.toContain("<table");
     expect(html).not.toContain("Filter by domain");
@@ -372,7 +371,9 @@ describe("FeedList", () => {
   });
 
   it("explains an empty feed", () => {
-    expect(render(ready([]))).toContain("No approved lessons yet");
+    const html = render(ready([]));
+    expect(html).toContain("No blueprints match this domain filter.");
+    expect(html).not.toContain("as soon as they are approved");
   });
 
   it("lays lessons out as a table: Domain, Tool, Violation and Fix, with the details closed", () => {
@@ -428,9 +429,19 @@ describe("FeedList", () => {
     expect(html).toContain("FCA SYSC 6.1.1");
     expect(html).toContain("The values of the call that was originally blocked are not published.");
     expect(html).toContain("Copy blueprint JSON");
-    expect(html).toContain('dateTime="2026-10-10T12:00:00.000Z"'); // React's spelling of the attribute
     expect(html).toContain("unchanged fields");
     expect(html).toContain("Hide details");
+  });
+
+  it("shows no dates or relative times anywhere: closed, opened, table or cards", () => {
+    const wired = { ...lesson, updated_at: "2026-10-10T12:00:00.000Z" }; // a stray field from the wire must not surface either
+    for (const html of [render(ready([wired])), render(ready([wired]), `#lesson-${ID}`), render(ready([{ ...wired, featured: true }]))]) {
+      expect(html).not.toContain("<time");
+      expect(html).not.toContain("dateTime");
+      expect(html).not.toContain("2026-10-10");
+      expect(html).not.toMatch(/\bago\b|just now|yesterday|Updated|recently/i);
+      expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    }
   });
 
   it("ignores a link to a lesson that is not in the feed", () => {
@@ -560,14 +571,17 @@ describe("public page and routing", () => {
     }
   }
 
-  it("serves the plain-language search and the live feed at /, with the structured lookup folded away between them", () => {
+  it("serves the plain-language search and the blueprint directory at /, with the structured lookup folded away between them", () => {
     const html = renderAt("/");
     expect(html).toContain('href="#main"');
     expect(html).toContain("Skip to content");
     expect(html).toContain("<header");
     expect(html).toMatch(/<main id="main"/);
-    expect(html).toContain("Latest approved lessons");
-    expect(html).toContain("Loading the latest lessons");
+    expect(html).toContain("Operational Memory");
+    expect(html).toContain("Verified Compliance Blueprints");
+    expect(html).toContain("Retrieving blueprints…");
+    for (const news of ["Live feed", "Latest approved lessons", "latest lessons"]) expect(html, news).not.toContain(news);
+    expect(html).toContain(">Refresh<"); // the refresh button stays
     // The default view is the simple search, open and visible.
     expect(html).toContain('aria-label="Search lessons"');
     expect(html).toContain("What is your agent about to do?");
@@ -576,7 +590,7 @@ describe("public page and routing", () => {
     expect(html).toContain('aria-label="Simulate a recall"');
     expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>[\s\S]*?Advanced Agent Simulator/);
     expect(html).toMatch(/<div id="[^"]+" hidden="" class="[^"]*">\s*<p[^>]*>Look up a call you are about to make/);
-    expect(html.indexOf("Advanced Agent Simulator")).toBeLessThan(html.indexOf("Latest approved lessons"));
+    expect(html.indexOf("Advanced Agent Simulator")).toBeLessThan(html.indexOf("Verified Compliance Blueprints"));
     expect(html).not.toContain("Advanced Agent Search");
   });
 

@@ -5,7 +5,8 @@
  *
  * A feed lesson has the shape /recall serves (directive, anchor, compliant arguments, changed paths)
  * without receipts, plus editorial fields. The values of the blocked call and the upstream rule name are not
- * part of it. A `violation_rule` key from an older server is ignored.
+ * part of it. A `violation_rule` key from an older server is ignored. So is `updated_at`: the server still
+ * sends it, but the public page shows no dates, so it is neither required nor kept.
  */
 import type { JsonObject } from "./delta";
 
@@ -24,8 +25,6 @@ export interface FeedLessonView {
   displayTitle: string | null;
   displaySummary: string | null;
   featured: boolean;
-  /** ISO 8601 time of the lesson's last state change. */
-  updatedAt: string;
 }
 
 function isPlainObject(value: unknown): value is JsonObject {
@@ -58,8 +57,7 @@ export function parseFeedResponse(body: unknown): FeedLessonView[] | null {
       !isPlainObject(item.compliant_arguments) ||
       !Array.isArray(item.changed_paths) ||
       !item.changed_paths.every((path) => typeof path === "string") ||
-      typeof item.featured !== "boolean" ||
-      typeof item.updated_at !== "string"
+      typeof item.featured !== "boolean"
     ) {
       return null;
     }
@@ -74,7 +72,6 @@ export function parseFeedResponse(body: unknown): FeedLessonView[] | null {
       displayTitle: title,
       displaySummary: summary,
       featured: item.featured,
-      updatedAt: item.updated_at,
     });
   }
   return lessons;
@@ -161,17 +158,4 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
         ? { ...state, phase: "ready", refreshing: false, stale: true, error: action.message }
         : { phase: "error", lessons: [], refreshing: false, error: action.message, stale: false };
   }
-}
-
-/** "5 minutes ago", "yesterday", or the date for anything older than a month. Pure given `now`. */
-export function relativeTime(iso: string, now: number = Date.now()): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "recently";
-  const seconds = Math.max(0, Math.round((now - then) / 1000));
-  if (seconds < 60) return "just now";
-  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-  if (seconds < 3600) return formatter.format(-Math.floor(seconds / 60), "minute");
-  if (seconds < 86_400) return formatter.format(-Math.floor(seconds / 3600), "hour");
-  if (seconds < 30 * 86_400) return formatter.format(-Math.floor(seconds / 86_400), "day");
-  return new Date(then).toISOString().slice(0, 10);
 }

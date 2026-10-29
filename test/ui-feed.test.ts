@@ -13,7 +13,6 @@ import {
   initialFeedState,
   loadFeed,
   parseFeedResponse,
-  relativeTime,
   type FeedLessonView,
   type FeedState,
 } from "../ui/src/lib/feed";
@@ -32,7 +31,7 @@ const WIRE = {
   display_title: null,
   display_summary: "Large transfers need two people.",
   featured: true,
-  updated_at: "2026-10-10T12:00:00.000Z",
+  updated_at: "2026-10-10T12:00:00.000Z", // still sent by the server; the page neither needs nor keeps it
 };
 
 const VIEW: FeedLessonView = {
@@ -46,7 +45,6 @@ const VIEW: FeedLessonView = {
   displayTitle: null,
   displaySummary: "Large transfers need two people.",
   featured: true,
-  updatedAt: "2026-10-10T12:00:00.000Z",
 };
 
 const body = (lessons: unknown[]) => ({ success: true, lessons });
@@ -72,13 +70,21 @@ describe("parseFeedResponse", () => {
       body([{ ...WIRE, changed_paths: [1] }]),
       body([{ ...WIRE, featured: "yes" }]),
       body([{ ...WIRE, steering_directive: undefined }]),
-      body([WIRE, { ...WIRE, updated_at: null }]),
     ];
     for (const value of bad) expect(parseFeedResponse(value), JSON.stringify(value)).toBeNull();
   });
 
   it("ignores fields it does not know, so a newer server does not break an older page", () => {
     expect(parseFeedResponse(body([{ ...WIRE, something_new: 1 }]))).toEqual([VIEW]);
+  });
+
+  it("does not need updated_at: a missing, null, malformed or odd one neither fails the parse nor is kept", () => {
+    const { updated_at: _omitted, ...withoutDate } = WIRE;
+    for (const lesson of [withoutDate, { ...WIRE, updated_at: null }, { ...WIRE, updated_at: 12345 }, { ...WIRE, updated_at: "not a date" }, { ...WIRE, updated_at: { nested: true } }]) {
+      const parsed = parseFeedResponse(body([lesson]));
+      expect(parsed, JSON.stringify(lesson)).toEqual([VIEW]);
+      expect(parsed![0]).not.toHaveProperty("updatedAt");
+    }
   });
 
   it("does not need violation_rule and drops it if a cached answer from an older server still carries it", () => {
@@ -173,21 +179,9 @@ describe("feedReducer", () => {
   });
 });
 
-describe("relativeTime", () => {
-  const now = Date.parse("2026-10-10T12:00:00.000Z");
-  const ago = (ms: number) => new Date(now - ms).toISOString();
-
-  it("reads naturally", () => {
-    expect(relativeTime(ago(10_000), now)).toBe("just now");
-    expect(relativeTime(ago(5 * 60_000), now)).toBe("5 minutes ago");
-    expect(relativeTime(ago(3 * 3_600_000), now)).toBe("3 hours ago");
-    expect(relativeTime(ago(86_400_000), now)).toBe("yesterday");
-    expect(relativeTime(ago(5 * 86_400_000), now)).toBe("5 days ago");
-    expect(relativeTime(ago(90 * 86_400_000), now)).toBe("2026-07-12");
-  });
-
-  it("copes with the future and with rubbish", () => {
-    expect(relativeTime(new Date(now + 60_000).toISOString(), now)).toBe("just now");
-    expect(relativeTime("nope", now)).toBe("recently");
+describe("the public feed carries no dates", () => {
+  it("has no date formatting helper left", async () => {
+    const feedModule = await import("../ui/src/lib/feed");
+    expect(feedModule).not.toHaveProperty("relativeTime");
   });
 });
