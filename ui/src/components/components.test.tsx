@@ -180,7 +180,6 @@ describe("SimpleSearch", () => {
       lessonId: "5e5dc086-bfd7-428e-a694-d328d9e0ffa6",
       domain: "fintech",
       tool: "dispatch_wire",
-      violationRule: "Dual authorisation for large transfers",
       steeringDirective: "Add a second approver.",
       statutoryAnchor: null,
       compliantArguments: { approval: { second_approver: "ops-lead" } },
@@ -191,7 +190,7 @@ describe("SimpleSearch", () => {
       updatedAt: "2026-10-01T00:00:00.000Z",
     };
     const html = render({ query, results: [{ score: 0.71, lesson }] });
-    expect(html).toContain("Dual authorisation for large transfers");
+    expect(html).toContain("Policy violation: dispatch_wire"); // no anchor and no title: the generic heading
     expect(html).toContain("Similarity 0.71");
     expect(html).toContain("dispatch_wire");
     expect(html).toContain("second_approver");
@@ -259,7 +258,6 @@ describe("ResultList", () => {
         reviewStatus: "pending",
         domain: "fintech",
         tool: "transfer_funds",
-        violationRule: "Dual authorisation for large transfers",
         steeringDirective: "Add a second approver.",
         statutoryAnchor: null,
         compliantArguments: FIX,
@@ -290,7 +288,7 @@ describe("ResultList", () => {
 
   it("renders a match as a Delta card with your call against the fix, and says where the call came from", () => {
     const html = renderToStaticMarkup(<ResultList state={withEntries([match])} />);
-    expect(html).toContain("Dual authorisation for large transfers");
+    expect(html).toContain("Policy violation: transfer_funds");
     expect(html).toContain("Similar task (score 0.91)");
     expect(html).toContain("Your own lesson, awaiting review");
     expect(html).toContain("Your call");
@@ -332,7 +330,6 @@ describe("FeedList", () => {
     lessonId: ID,
     domain: "fintech",
     tool: "transfer_funds",
-    violationRule: "Dual authorisation for large transfers",
     steeringDirective: "Add a second approver.",
     statutoryAnchor: "FCA SYSC 6.1.1",
     compliantArguments: FIX,
@@ -385,15 +382,15 @@ describe("FeedList", () => {
     for (const heading of ["Domain", "Tool", "Violation", "Fix"]) expect(table).toMatch(new RegExp(`<th scope="col"[^>]*>${heading}</th>`));
     expect(table).toContain("Fintech and banking");
     expect(table).toContain("transfer_funds");
-    expect(table).toContain("Dual authorisation for large transfers");
+    expect(table).toContain("FCA SYSC 6.1.1"); // the statutory anchor is the row's heading
     expect(table).toContain("Add a second approver.");
     expect(table).toContain(">approval.second_approver<"); // the changed field, named in the row itself
     expect(table).toContain(`id="lesson-${ID}"`);
     expect(table).toMatch(/<button[^>]*aria-expanded="false"[^>]*aria-controls="lesson-detail-1111/);
-    expect(table).toContain('aria-label="Show details for transfer_funds"');
+    expect(table).toContain('aria-label="Show details for transfer_funds, FCA SYSC 6.1.1"');
     expect(table).toContain(`<tr id="lesson-detail-${ID}" hidden=""></tr>`);
     // Nothing from the detail view is on the page until a row is opened.
-    for (const detail of ["The fix", "Statutory anchor", "FCA SYSC 6.1.1", "Copy blueprint JSON", "set by the fix"]) expect(html, detail).not.toContain(detail);
+    for (const detail of ["The fix", "Statutory anchor", "Copy blueprint JSON", "set by the fix"]) expect(html, detail).not.toContain(detail);
   });
 
   it("draws the same lessons as cards below the md breakpoint, and the table only from it", () => {
@@ -408,11 +405,16 @@ describe("FeedList", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("splits a long rule into the statute and a rule chip", () => {
-    const html = render(ready([{ ...lesson, violationRule: "ISO 10218-1:2025 and ISO 10218-2:2025 — industrial robot safety requirements: Rule 4" }]));
-    expect(html).toContain("ISO 10218-1:2025 and ISO 10218-2:2025 — industrial robot safety requirements");
-    expect(html).toContain(">Rule 4<");
-    expect(html).toContain('aria-label="Show details for transfer_funds, Rule 4"');
+  it("shows the statutory anchor, with no rule chip, and a generic heading when there is no anchor", () => {
+    const anchor = "ISO 10218-1:2025 and ISO 10218-2:2025 — industrial robot safety requirements";
+    const withAnchor = render(ready([{ ...lesson, statutoryAnchor: anchor }]));
+    expect(withAnchor).toContain(anchor);
+    expect(withAnchor).not.toMatch(/Rule\s+\d/);
+    expect(withAnchor).not.toContain("bg-blocked/10"); // the chip's styling
+
+    const withoutAnchor = render(ready([{ ...lesson, statutoryAnchor: null }]));
+    expect(withoutAnchor).toContain("Policy violation: transfer_funds");
+    expect(withoutAnchor).toContain('aria-label="Show details for transfer_funds"');
   });
 
   it("opens the lesson a #lesson-<id> link names, with the exact fix, no blocked values, and the extra directive text", () => {
@@ -464,7 +466,7 @@ describe("FeedList", () => {
   it("keeps the old lessons on screen and says so when a refresh fails", () => {
     const html = render(ready([lesson], { stale: true, error: "The feed could not be reached. Check your connection and try again." }));
     expect(html).toContain("may be out of date");
-    expect(html).toContain("Dual authorisation for large transfers");
+    expect(html).toContain("FCA SYSC 6.1.1");
     expect(html).not.toContain('role="alert"');
   });
 });

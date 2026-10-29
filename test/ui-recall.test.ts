@@ -121,7 +121,6 @@ describe("parseRecallResponse", () => {
     review_status: "approved",
     domain: "fintech",
     tool: "transfer_funds",
-    violation_rule: "Dual authorisation for large transfers",
     steering_directive: "Add a second approver before moving the funds.",
     statutory_anchor: "FCA SYSC 6.1.1",
     compliant_arguments: FIX_ARGUMENTS,
@@ -144,7 +143,6 @@ describe("parseRecallResponse", () => {
         reviewStatus: "approved",
         domain: "fintech",
         tool: "transfer_funds",
-        violationRule: "Dual authorisation for large transfers",
         steeringDirective: "Add a second approver before moving the funds.",
         statutoryAnchor: "FCA SYSC 6.1.1",
         compliantArguments: FIX_ARGUMENTS,
@@ -153,6 +151,12 @@ describe("parseRecallResponse", () => {
     });
     expect(JSON.stringify(outcome)).not.toContain("attestation");
     expect(JSON.stringify(outcome)).not.toContain("receipt");
+  });
+
+  it("does not need violation_rule and drops it if an older server still sends it", () => {
+    const withRule = parseRecallResponse({ ...hit, lesson: { ...lesson, violation_rule: "Regulation J: Rule 4" } });
+    expect(withRule).toEqual(parseRecallResponse(hit));
+    expect(JSON.stringify(withRule)).not.toMatch(/Rule 4|violationRule|violation_rule/);
   });
 
   it("accepts null directives, a semantic tier and a pending lesson", () => {
@@ -330,10 +334,10 @@ describe("recall against the real Worker", () => {
     expect(outcome.lesson).toMatchObject({
       lessonId,
       reviewStatus: "approved",
-      violationRule: "Dual authorisation for large transfers",
       compliantArguments: FIX_ARGUMENTS,
       changedPaths: ["/approval/second_approver"],
     });
+    expect(outcome.lesson).not.toHaveProperty("violationRule");
     expect(outcome.lesson.steeringDirective).toBeTruthy();
 
     // "Your call" (what was typed) against "The fix": one highlighted field.

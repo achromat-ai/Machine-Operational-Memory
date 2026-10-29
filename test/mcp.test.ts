@@ -344,6 +344,13 @@ describe("POST /mcp tools/call achromat_recall", () => {
     expect(body).not.toContain(RECALL_ARGS.task_description);
     expect(body).not.toMatch(/receipt|attestation/);
 
+    // The upstream rule name is neither in the structured lessons nor on a "Rule:" line of the text.
+    expect(body).not.toContain("violation_rule");
+    expect(body).not.toContain("Dual authorisation for large transfers");
+    expect(text(result)).not.toMatch(/^\s*Rule:/m);
+    for (const lesson of lessons) expect(lesson).not.toHaveProperty("violation_rule");
+    expect(text(result)).toContain("Statutory anchor: FCA SYSC 6.1.1");
+
     // The notice opens and closes the text, and the samples are labelled as such.
     expect(text(result).startsWith(NOTICE)).toBe(true);
     expect(text(result).endsWith(NOTICE)).toBe(true);
@@ -406,7 +413,7 @@ describe("POST /mcp tools/call achromat_recall", () => {
   it("caches each domain's lessons at the edge for 300 seconds on the deployed Worker", async () => {
     const world = await freshWorld();
     const owner = await community();
-    const cacheKey = new Request(`${ORIGIN}/mcp/_sandbox/fintech`);
+    const cacheKey = new Request(`${ORIGIN}/mcp/_sandbox/v2/fintech`);
     await caches.default.delete(cacheKey);
 
     const post = () =>

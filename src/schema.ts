@@ -524,14 +524,14 @@ const RecallReceiptRef = z.strictObject({ id: z.string(), signature: z.string() 
 /**
  * One recalled lesson. `changed_paths` lists WHERE the fix differs from the blocked call (JSON
  * Pointers). The values of the blocked call are never served, so there is no delta_json, no
- * trap_arguments and no evaluated_input here.
+ * trap_arguments and no evaluated_input here. The upstream rule name or number (lessons.violation_rule)
+ * is not served either: it would fingerprint the upstream policy. The statutory anchor stands in for it.
  */
 export const RecallLesson = z.strictObject({
   lesson_id: z.string(),
   review_status: z.enum(["approved", "pending"]),
   domain: z.string(),
   tool: z.string(),
-  violation_rule: z.string(),
   steering_directive: z.string().nullable(),
   statutory_anchor: z.string().nullable(),
   compliant_arguments: z.record(z.string(), z.json()),
@@ -571,7 +571,6 @@ export const FeedLesson = z.strictObject({
   lesson_id: z.string(),
   domain: z.string(),
   tool: z.string(),
-  violation_rule: z.string(),
   steering_directive: z.string().nullable(),
   statutory_anchor: z.string().nullable(),
   compliant_arguments: z.record(z.string(), z.json()),

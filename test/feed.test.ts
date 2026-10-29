@@ -7,6 +7,7 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { processLesson } from "../src/review/pipeline";
+import { FEED_CACHE_VERSION } from "../src/routes/feed";
 import { FEED_LIMIT, FeedResponse } from "../src/schema";
 import { FIX_ARGUMENTS, TRAP_ARGUMENTS, community, humanReview, insertPair, lessonState, uuid } from "./fixtures/ledger";
 import { freshWorld, type World } from "./fixtures/world";
@@ -81,7 +82,6 @@ describe("GET /api/v1/feed", () => {
       lesson_id: pair.lessonId,
       domain: "fintech",
       tool: "transfer_funds",
-      violation_rule: "Dual authorisation for large transfers",
       steering_directive: "Add a second approver before moving the funds.",
       statutory_anchor: "FCA SYSC 6.1.1",
       compliant_arguments: FIX_ARGUMENTS,
@@ -114,6 +114,21 @@ describe("GET /api/v1/feed", () => {
     for (const leaked of [MARKER, "trap_arguments", "delta_json", "evaluated_input", "signature", "attestation", "receipt", owner.key, "task_description"]) {
       expect(text, leaked).not.toContain(leaked);
     }
+  });
+
+  it("never serves the upstream rule name or number, only the statutory anchor", async () => {
+    const world = await freshWorld({ feedCacheSeconds: 0 });
+    const owner = await community();
+    const pair = await approvedLesson(world, owner.key);
+    // The rule is still stored for admins, so a leak here would be a mapping bug and not missing data.
+    const stored = await env.DB.prepare("SELECT violation_rule FROM lessons WHERE lesson_id = ?1").bind(pair.lessonId).first<{ violation_rule: string }>();
+    expect(stored?.violation_rule).toBe("Dual authorisation for large transfers");
+
+    const text = await (await getFeed(world)).text();
+    expect(text).toContain("FCA SYSC 6.1.1");
+    expect(text).not.toContain("violation_rule");
+    expect(text).not.toContain(stored!.violation_rule);
+    expect(text).not.toMatch(/Rule\s+\d/i);
   });
 
   it("lists only approved lessons: pending, rejected and quarantined ones are left out", async () => {
@@ -221,7 +236,8 @@ describe("GET /api/v1/feed: edge cache", () => {
   it("serves one cached copy for the cache lifetime, whatever the query string", async () => {
     const world = await freshWorld({ feedCacheSeconds: 30 });
     // An earlier case may have cached a copy through the deployed entry point; start from none.
-    await caches.default.delete(new Request(ORIGIN + FEED));
+    const cacheKey = new Request(`${ORIGIN}${FEED}?v=${FEED_CACHE_VERSION}`);
+    await caches.default.delete(cacheKey);
     const owner = await community();
     const first = await approvedLesson(world, owner.key);
 
@@ -234,5 +250,25 @@ describe("GET /api/v1/feed: edge cache", () => {
     expect(cached.headers.get("Cache-Control")).toBe("public, max-age=30");
     expect(after.lessons.map((item) => item.lesson_id)).not.toContain(second.lessonId);
     expect(after).toEqual(before);
+    await caches.default.delete(cacheKey);
+  });
+
+  it("never reads a copy cached under the old shape: the key is versioned", async () => {
+    const world = await freshWorld({ feedCacheSeconds: 30 });
+    const oldKey = new Request(ORIGIN + FEED);
+    const newKey = new Request(`${ORIGIN}${FEED}?v=${FEED_CACHE_VERSION}`);
+    await caches.default.delete(newKey);
+    const owner = await community();
+    const pair = await approvedLesson(world, owner.key);
+    // A pre-redaction body, as an edge node would still hold it right after a deploy.
+    const stale = JSON.stringify({ success: true, lessons: [{ lesson_id: pair.lessonId, violation_rule: "Regulation J: Rule 4" }] });
+    await caches.default.put(oldKey, new Response(stale, { headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=30" } }));
+
+    const text = await (await getFeed(world)).text();
+    expect(text).toContain(pair.lessonId);
+    expect(text).not.toContain("violation_rule");
+    expect(text).not.toContain("Rule 4");
+    await caches.default.delete(oldKey);
+    await caches.default.delete(newKey);
   });
 });

@@ -1,23 +1,17 @@
 /**
- * Text helpers for a feed row. A lesson's `violation_rule` reads "<statute>: Rule 4" and its
- * `steering_directive` can hold several alternatives joined with " | ". The table shows the short form
- * and the detail row shows all of it. Pure functions, no DOM.
+ * Text helpers for a feed row. A lesson's `steering_directive` can hold several alternatives joined with
+ * " | ". The table shows the short form and the detail row shows all of it. The public payload carries no
+ * rule name or number, only the statutory anchor. Pure functions, no DOM.
  */
 import { pathLabel } from "./delta";
 
-export interface RuleParts {
-  /** The regulation or framework, without the rule number. */
-  statute: string;
-  /** "Rule 4" or "Rule 1 + Rule 4"; null when the rule text has no such suffix. */
-  rule: string | null;
-}
-
-const RULE_SUFFIX = /^(.*\S)\s*:\s*(Rule\s+\d+(?:\s*\+\s*Rule\s+\d+)*)\s*$/i;
-
-export function splitRule(violationRule: string): RuleParts {
-  const text = violationRule.trim();
-  const match = RULE_SUFFIX.exec(text);
-  return match ? { statute: match[1]!, rule: match[2]! } : { statute: text, rule: null };
+/** The title of a lesson card: the editorial title, else the statutory anchor, else a generic line naming the tool. */
+export function lessonHeading(lesson: { displayTitle?: string | null; statutoryAnchor: string | null; tool: string }): string {
+  const title = lesson.displayTitle?.trim();
+  if (title) return title;
+  const anchor = lesson.statutoryAnchor?.trim();
+  if (anchor) return anchor;
+  return `Policy violation: ${lesson.tool}`;
 }
 
 export interface SteeringParts {

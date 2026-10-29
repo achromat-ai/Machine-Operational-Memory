@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type FormEvent } from "react";
 import { DOMAIN_ORDER, domainLabel } from "../../lib/domains";
+import { lessonHeading } from "../../lib/lessonText";
 import { validateSimpleSearch, type SearchQuery, type SearchState, type SimpleFieldErrors } from "../../lib/search";
 import DeltaCard from "./DeltaCard";
 
@@ -41,7 +42,7 @@ function Results({ state }: { state: SearchState }) {
           state.results.map(({ score, lesson }) => (
             <DeltaCard
               key={lesson.lessonId}
-              heading={lesson.displayTitle ?? lesson.violationRule}
+              heading={lessonHeading(lesson)}
               headingLevel={3}
               meta={
                 <>

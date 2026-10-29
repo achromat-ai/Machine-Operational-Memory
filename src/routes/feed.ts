@@ -4,9 +4,10 @@
  * Order: caller network → per-network limit (60/min) → edge cache → D1 → response.
  *
  * Reads D1 only (no embedding, no Vectorize), so it needs no identity and costs nothing per visitor.
- * Each lesson has the same shape /recall serves minus its receipts and attestation: the rule, the steering
- * directive, the statutory anchor, the compliant arguments and the changed paths. The blocked call's values are
- * never read here. Only lessons with review_status 'approved' and visibility 'public' are returned, so a
+ * Each lesson has the same shape /recall serves minus its receipts and attestation: the steering directive,
+ * the statutory anchor, the compliant arguments and the changed paths. The upstream rule name or number
+ * (lessons.violation_rule) is never selected here, so it cannot reach a public payload. The blocked call's
+ * values are never read either. Only lessons with review_status 'approved' and visibility 'public' are returned, so a
  * quarantined or rejected lesson leaves the feed as soon as its cached copy expires (at most 30 seconds, plus
  * the browser's own 30).
  *
@@ -23,6 +24,11 @@ import { FEED_LIMIT, FeedResponse } from "../schema";
 export const FEED_PATH = "/api/v1/feed";
 export const FEED_CACHE_SECONDS = 30;
 export const FEED_CACHE_CONTROL = `public, max-age=${FEED_CACHE_SECONDS}`;
+/**
+ * Version of the cached body's shape. Bump it when the payload changes so a copy cached under the old shape is
+ * never read again. (v2: violation_rule removed.)
+ */
+export const FEED_CACHE_VERSION = "2";
 
 type FeedEnv = { Bindings: Env; Variables: AuthVariables };
 
@@ -36,7 +42,6 @@ export interface FeedRow {
   lesson_id: string;
   domain: string;
   tool_name: string;
-  violation_rule: string;
   changed_paths_json: string;
   display_title: string | null;
   display_summary: string | null;
@@ -52,7 +57,7 @@ export interface FeedRow {
  * attestation. Callers append their own ORDER BY and LIMIT.
  */
 export const PUBLIC_LESSON_SQL = `
-SELECT l.lesson_id, l.domain, l.tool_name, l.violation_rule, l.changed_paths_json,
+SELECT l.lesson_id, l.domain, l.tool_name, l.changed_paths_json,
        s.display_title, s.display_summary, s.featured, s.updated_at_ms,
        f.fix_arguments_json,
        e.steering_directive, e.statutory_anchor
@@ -72,7 +77,6 @@ export function presentPublicLesson(row: FeedRow) {
     lesson_id: row.lesson_id,
     domain: row.domain,
     tool: row.tool_name,
-    violation_rule: row.violation_rule,
     steering_directive: row.steering_directive,
     statutory_anchor: row.statutory_anchor,
     compliant_arguments: JSON.parse(row.fix_arguments_json),
@@ -110,8 +114,9 @@ export function createFeedRoutes(options: FeedOptions = {}) {
       return apiError(c, 429, "RATE_LIMITED", "too many feed requests from this network; retry in a minute");
     }
 
-    // One cache entry for the whole feed: the key is the bare path, so query strings cannot create variants.
-    const cacheKey = new Request(new URL(FEED_PATH, c.req.url).toString());
+    // One cache entry for the whole feed: the key is built here from the path and FEED_CACHE_VERSION, never from
+    // the caller's query string, so callers cannot create variants.
+    const cacheKey = new Request(new URL(`${FEED_PATH}?v=${FEED_CACHE_VERSION}`, c.req.url).toString());
     const cache = cacheSeconds > 0 ? caches.default : null;
     if (cache) {
       try {

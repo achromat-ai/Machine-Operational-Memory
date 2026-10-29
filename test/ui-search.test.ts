@@ -29,7 +29,6 @@ const API_LESSON = {
   lesson_id: "5e5dc086-bfd7-428e-a694-d328d9e0ffa6",
   domain: "fintech",
   tool: "transfer_funds",
-  violation_rule: "Dual authorisation for large transfers",
   steering_directive: "Add a second approver.",
   statutory_anchor: null,
   compliant_arguments: { approval: { second_approver: "ops-lead" } },

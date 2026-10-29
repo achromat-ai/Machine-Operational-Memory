@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { domainLabel } from "../ui/src/lib/domains";
 import type { FeedLessonView } from "../ui/src/lib/feed";
 import { NO_FILTER, domainCounts, filterLessons } from "../ui/src/lib/feedFilter";
-import { changedFieldLabels, lessonIdFromHash, splitRule, splitSteering } from "../ui/src/lib/lessonText";
+import * as lessonText from "../ui/src/lib/lessonText";
+import { changedFieldLabels, lessonHeading, lessonIdFromHash, splitSteering } from "../ui/src/lib/lessonText";
 import { agentPrompt, siteOrigin } from "../ui/src/lib/site";
 
 const ID = "5e5dc086-bfd7-428e-a694-d328d9e0ffa6";
@@ -12,7 +13,6 @@ function lesson(over: Partial<FeedLessonView> = {}): FeedLessonView {
     lessonId: ID,
     domain: "devsecops",
     tool: "http_request",
-    violationRule: "OWASP Top 10 for LLMs: Rule 1 + Rule 2 + Rule 3",
     steeringDirective: "Cancel the request. | Use a scoped role.",
     statutoryAnchor: null,
     compliantArguments: { action: "HALT" },
@@ -25,18 +25,17 @@ function lesson(over: Partial<FeedLessonView> = {}): FeedLessonView {
   };
 }
 
-describe("splitRule", () => {
-  it("separates the statute from the rule number", () => {
-    expect(splitRule("ISO 10218-1:2025 and ISO 10218-2:2025 — industrial robot safety: Rule 4")).toEqual({
-      statute: "ISO 10218-1:2025 and ISO 10218-2:2025 — industrial robot safety",
-      rule: "Rule 4",
-    });
-    expect(splitRule("OWASP Top 10 for LLMs: Rule 1 + Rule 4")).toEqual({ statute: "OWASP Top 10 for LLMs", rule: "Rule 1 + Rule 4" });
+describe("lessonHeading", () => {
+  it("prefers the editorial title, then the statutory anchor, then a generic line naming the tool", () => {
+    expect(lessonHeading({ displayTitle: "Second approver", statutoryAnchor: "FCA SYSC 6.1.1", tool: "dispatch_wire" })).toBe("Second approver");
+    expect(lessonHeading({ displayTitle: null, statutoryAnchor: "FCA SYSC 6.1.1", tool: "dispatch_wire" })).toBe("FCA SYSC 6.1.1");
+    expect(lessonHeading({ statutoryAnchor: "  FCA SYSC 6.1.1 ", tool: "dispatch_wire" })).toBe("FCA SYSC 6.1.1");
+    expect(lessonHeading({ displayTitle: null, statutoryAnchor: null, tool: "dispatch_wire" })).toBe("Policy violation: dispatch_wire");
+    expect(lessonHeading({ displayTitle: "  ", statutoryAnchor: "", tool: "dispatch_wire" })).toBe("Policy violation: dispatch_wire");
   });
 
-  it("keeps a rule text without a number whole", () => {
-    expect(splitRule("  Dual authorisation for large transfers ")).toEqual({ statute: "Dual authorisation for large transfers", rule: null });
-    expect(splitRule("Statute: not a rule number")).toEqual({ statute: "Statute: not a rule number", rule: null });
+  it("no longer offers any rule-number parsing", () => {
+    expect(lessonText).not.toHaveProperty("splitRule");
   });
 });
 
@@ -74,7 +73,7 @@ describe("lessonIdFromHash", () => {
 });
 
 describe("filtering the feed", () => {
-  const wire = lesson({ lessonId: "11111111-1111-4111-8111-111111111111", domain: "fintech", tool: "dispatch_wire", violationRule: "Regulation J: Rule 5", changedPaths: ["/dual_control"] });
+  const wire = lesson({ lessonId: "11111111-1111-4111-8111-111111111111", domain: "fintech", tool: "dispatch_wire", statutoryAnchor: "Regulation J", changedPaths: ["/dual_control"] });
   const robot = lesson({ lessonId: "22222222-2222-4222-8222-222222222222", domain: "industrial_iot", tool: "dispatch_manipulation", steeringDirective: "Halt motion and reduce speed." });
   const all = [lesson(), wire, robot];
 
@@ -87,8 +86,9 @@ describe("filtering the feed", () => {
     expect(filterLessons(all, { domain: "robotics", text: "" })).toEqual([]);
   });
 
-  it("searches the tool, rule, directive, domain name and changed fields, ignoring case and padding", () => {
+  it("searches the tool, anchor, directive, domain name and changed fields, ignoring case and padding", () => {
     expect(filterLessons(all, { domain: null, text: "  DISPATCH_WIRE " })).toEqual([wire]);
+    expect(filterLessons(all, { domain: null, text: "regulation j" })).toEqual([wire]);
     expect(filterLessons(all, { domain: null, text: "reduce speed" })).toEqual([robot]);
     expect(filterLessons(all, { domain: null, text: "dual_control" })).toEqual([wire]);
     expect(filterLessons(all, { domain: null, text: "industrial iot" })).toEqual([robot]);

@@ -202,7 +202,8 @@ const SANDBOX_SQL = `${PUBLIC_LESSON_SQL}
 
 async function sampleLessons(c: Context<McpEnv>, domain: string, cacheSeconds: number): Promise<SampleLesson[]> {
   // One cache entry per domain, keyed on a synthetic path. The domain is an enum, so callers cannot create more.
-  const cacheKey = new Request(new URL(`${MCP_PATH}/_sandbox/${domain}`, c.req.url).toString());
+  // The version in the path retires copies cached under an older lesson shape (v2: violation_rule removed).
+  const cacheKey = new Request(new URL(`${MCP_PATH}/_sandbox/v2/${domain}`, c.req.url).toString());
   const cache = cacheSeconds > 0 ? caches.default : null;
   if (cache) {
     try {
@@ -231,7 +232,7 @@ async function sampleLessons(c: Context<McpEnv>, domain: string, cacheSeconds: n
 }
 
 function lessonLines(lesson: SampleLesson, index: number): string[] {
-  const lines = [`${index + 1}. ${lesson.display_title ?? lesson.violation_rule} (tool: ${lesson.tool})`, `   Rule: ${lesson.violation_rule}`];
+  const lines = [`${index + 1}. ${lesson.display_title ?? lesson.statutory_anchor ?? `Policy violation: ${lesson.tool}`} (tool: ${lesson.tool})`];
   if (lesson.steering_directive) lines.push(`   Steering: ${lesson.steering_directive}`);
   if (lesson.statutory_anchor) lines.push(`   Statutory anchor: ${lesson.statutory_anchor}`);
   lines.push(`   Changed paths: ${lesson.changed_paths.join(", ")}`);

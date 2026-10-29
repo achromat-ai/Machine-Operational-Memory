@@ -3,7 +3,11 @@ import { buildDeltaRows, splitRows, type JsonObject } from "../../lib/delta";
 import { DeltaPanel, ValueText } from "./DeltaPanel";
 
 export interface DeltaCardProps {
-  /** The rule the call ran into. */
+  /**
+   * What the call ran into. The public pages pass lessonHeading() (title, else statutory anchor, else
+   * "Policy violation: <tool>"); the review console passes the full rule text. When the heading already is the
+   * statutory anchor, the anchor line below it is left out.
+   */
   heading: string;
   /** Badges and facts shown under the heading. */
   meta?: ReactNode;
@@ -56,7 +60,7 @@ export default function DeltaCard(props: DeltaCardProps) {
           <p className="mt-1 text-base font-medium text-slate-900">{steeringDirective}</p>
         </aside>
       ) : null}
-      {statutoryAnchor ? (
+      {statutoryAnchor && statutoryAnchor !== heading ? (
         <p className="mx-5 mt-3 text-sm text-slate-700">
           <span className="font-semibold text-slate-900">Statutory anchor: </span>
           {statutoryAnchor}

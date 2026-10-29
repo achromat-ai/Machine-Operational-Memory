@@ -44,16 +44,22 @@ describe("GET /api/v1/search: results", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
 
-    const body = SearchResponse.parse(await response.json());
+    const raw = await response.text();
+    const body = SearchResponse.parse(JSON.parse(raw));
     const [first] = body.results;
     expect(first!.lesson).toMatchObject({
       lesson_id: lesson.lessonId,
       domain: "fintech",
       tool: "transfer_funds",
-      violation_rule: "Dual authorisation for large transfers",
       compliant_arguments: FIX_ARGUMENTS,
     });
     expect(first!.score).toBeGreaterThanOrEqual(SEARCH_MIN_SCORE);
+
+    // The upstream rule name is never served, only the statutory anchor.
+    expect(first!.lesson).not.toHaveProperty("violation_rule");
+    expect(raw).not.toContain("violation_rule");
+    expect(raw).not.toContain("Dual authorisation for large transfers");
+    expect(raw).not.toMatch(/Rule\s+\d/i);
   });
 
   it("asks Vectorize for the domain namespace and public lessons only, with no tool filter", async () => {

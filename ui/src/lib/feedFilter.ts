@@ -15,7 +15,6 @@ function haystack(lesson: FeedLessonView): string {
     domainLabel(lesson.domain),
     lesson.domain,
     lesson.tool,
-    lesson.violationRule,
     lesson.steeringDirective ?? "",
     lesson.statutoryAnchor ?? "",
     lesson.displayTitle ?? "",

@@ -25,7 +25,6 @@ const WIRE = {
   lesson_id: "11111111-1111-4111-8111-111111111111",
   domain: "fintech",
   tool: "transfer_funds",
-  violation_rule: "Dual authorisation for large transfers",
   steering_directive: "Add a second approver.",
   statutory_anchor: null,
   compliant_arguments: FIX_ARGUMENTS,
@@ -40,7 +39,6 @@ const VIEW: FeedLessonView = {
   lessonId: WIRE.lesson_id,
   domain: "fintech",
   tool: "transfer_funds",
-  violationRule: WIRE.violation_rule,
   steeringDirective: "Add a second approver.",
   statutoryAnchor: null,
   compliantArguments: FIX_ARGUMENTS,
@@ -81,6 +79,12 @@ describe("parseFeedResponse", () => {
 
   it("ignores fields it does not know, so a newer server does not break an older page", () => {
     expect(parseFeedResponse(body([{ ...WIRE, something_new: 1 }]))).toEqual([VIEW]);
+  });
+
+  it("does not need violation_rule and drops it if a cached answer from an older server still carries it", () => {
+    const parsed = parseFeedResponse(body([{ ...WIRE, violation_rule: "Regulation J: Rule 4" }]));
+    expect(parsed).toEqual([VIEW]);
+    expect(JSON.stringify(parsed)).not.toMatch(/Rule 4|violationRule|violation_rule/);
   });
 });
 

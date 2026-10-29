@@ -97,7 +97,6 @@ describe("POST /api/v1/recall: exact tier", () => {
       review_status: "pending",
       domain: DOMAIN,
       tool: TOOL,
-      violation_rule: "Dual authorisation for large transfers",
       steering_directive: "Add a second approver before moving the funds.",
       statutory_anchor: "FCA SYSC 6.1.1",
       compliant_arguments: FIX_ARGUMENTS,
@@ -111,6 +110,11 @@ describe("POST /api/v1/recall: exact tier", () => {
     const text = JSON.stringify(json);
     for (const leaked of ["TRAP-ONLY-MARKER", "trap_arguments", "delta_json", "evaluated_input"]) expect(text).not.toContain(leaked);
     expect(world.embedder.calls).toHaveLength(0);
+
+    // Nor does the upstream rule name leave the ledger: the statutory anchor is all a caller gets.
+    expect(body.lesson).not.toHaveProperty("violation_rule");
+    expect(text).not.toContain("violation_rule");
+    expect(text).not.toContain("Dual authorisation for large transfers");
   });
 
   it("keeps a pending pair away from every other key, in D1 and in the Vectorize filter", async () => {

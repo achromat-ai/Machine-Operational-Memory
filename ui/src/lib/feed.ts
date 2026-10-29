@@ -3,8 +3,9 @@
  * landing page. The endpoint is unauthenticated, so this uses a plain fetch: no identity, no proof of work.
  * No DOM, so it runs in the test suite against the real Worker.
  *
- * A feed lesson has the shape /recall serves (rule, directive, anchor, compliant arguments, changed paths)
- * without receipts, plus editorial fields. The values of the blocked call are not part of it.
+ * A feed lesson has the shape /recall serves (directive, anchor, compliant arguments, changed paths)
+ * without receipts, plus editorial fields. The values of the blocked call and the upstream rule name are not
+ * part of it. A `violation_rule` key from an older server is ignored.
  */
 import type { JsonObject } from "./delta";
 
@@ -16,7 +17,6 @@ export interface FeedLessonView {
   lessonId: string;
   domain: string;
   tool: string;
-  violationRule: string;
   steeringDirective: string | null;
   statutoryAnchor: string | null;
   compliantArguments: JsonObject;
@@ -51,7 +51,6 @@ export function parseFeedResponse(body: unknown): FeedLessonView[] | null {
       typeof item.lesson_id !== "string" ||
       typeof item.domain !== "string" ||
       typeof item.tool !== "string" ||
-      typeof item.violation_rule !== "string" ||
       steering === undefined ||
       anchor === undefined ||
       title === undefined ||
@@ -68,7 +67,6 @@ export function parseFeedResponse(body: unknown): FeedLessonView[] | null {
       lessonId: item.lesson_id,
       domain: item.domain,
       tool: item.tool,
-      violationRule: item.violation_rule,
       steeringDirective: steering,
       statutoryAnchor: anchor,
       compliantArguments: item.compliant_arguments,

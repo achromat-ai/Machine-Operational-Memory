@@ -12,7 +12,7 @@
  * 'public' (approved) or the caller's own HMAC token (their pending_review lesson).
  * Vectorize filters on it, and D1 checks it again for every hit, so a stale vector
  * of a rejected or quarantined lesson is never served. The blocked call's
- * arguments are never read here.
+ * arguments and the upstream rule name (lessons.violation_rule) are never read here.
  */
 import { Hono, type Context } from "hono";
 import { bundleForDomain } from "../config/domains";
@@ -62,7 +62,6 @@ interface Hydrated {
   lesson_id: string;
   domain: string;
   tool_name: string;
-  violation_rule: string;
   changed_paths_json: string;
   pair_attestation: string;
   attestation_kid: string;
@@ -118,7 +117,7 @@ async function claimDelivery(
 
 function hydrate(env: Env, lessonId: string): Promise<Hydrated | null> {
   return env.DB.prepare(
-    `SELECT l.lesson_id, l.domain, l.tool_name, l.violation_rule, l.changed_paths_json, l.pair_attestation, l.attestation_kid,
+    `SELECT l.lesson_id, l.domain, l.tool_name, l.changed_paths_json, l.pair_attestation, l.attestation_kid,
             s.review_status,
             f.fix_arguments_json, f.allow_receipt_id, f.receipt_signature AS allow_signature,
             e.block_receipt_id, e.receipt_signature AS block_signature, e.steering_directive, e.statutory_anchor
@@ -294,7 +293,6 @@ async function handleRecall(c: Context<RecallEnv>, options: RecallOptions) {
         review_status: row.review_status === "approved" ? "approved" : "pending",
         domain: row.domain,
         tool: row.tool_name,
-        violation_rule: row.violation_rule,
         steering_directive: row.steering_directive,
         statutory_anchor: row.statutory_anchor,
         compliant_arguments: JSON.parse(row.fix_arguments_json),

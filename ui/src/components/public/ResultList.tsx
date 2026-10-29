@@ -1,3 +1,4 @@
+import { lessonHeading } from "../../lib/lessonText";
 import type { RecallEntry, RecallState } from "../../lib/recall";
 import DeltaCard from "./DeltaCard";
 
@@ -32,7 +33,7 @@ function Entry({ entry }: { entry: RecallEntry }) {
   const { lesson } = outcome;
   return (
     <DeltaCard
-      heading={lesson.violationRule}
+      heading={lessonHeading(lesson)}
       headingLevel={3}
       meta={
         <>

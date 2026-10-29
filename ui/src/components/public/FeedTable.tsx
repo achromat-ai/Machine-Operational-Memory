@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { buildDeltaRows, splitRows } from "../../lib/delta";
 import { domainLabel } from "../../lib/domains";
 import { relativeTime, type FeedLessonView } from "../../lib/feed";
-import { cardAnchor, changedFieldLabels, lessonIdFromHash, rowAnchor, splitRule, splitSteering, toolSegments } from "../../lib/lessonText";
+import { cardAnchor, changedFieldLabels, lessonHeading, lessonIdFromHash, rowAnchor, splitSteering, toolSegments } from "../../lib/lessonText";
 import CopyButton from "./CopyButton";
 import { DeltaPanel, ValueText } from "./DeltaPanel";
 import { ChevronIcon } from "./icons";
@@ -31,13 +31,12 @@ function ToolChip({ tool }: { tool: string }) {
   );
 }
 
-function RuleCell({ lesson }: { lesson: FeedLessonView }) {
-  const { statute, rule } = splitRule(lesson.violationRule);
+/** The title (or, without one, the statutory anchor or the generic fallback), and the anchor under a title. */
+function ViolationCell({ lesson }: { lesson: FeedLessonView }) {
   return (
     <div className="min-w-0">
-      {lesson.displayTitle ? <p className="text-sm font-semibold text-slate-900">{lesson.displayTitle}</p> : null}
-      <p className="line-clamp-2 text-sm text-slate-800">{statute}</p>
-      {rule ? <span className="mt-1 inline-block rounded bg-blocked/10 px-1.5 py-0.5 text-xs font-semibold text-blocked">{rule}</span> : null}
+      <p className="line-clamp-2 text-sm font-semibold text-slate-900">{lessonHeading(lesson)}</p>
+      {lesson.displayTitle && lesson.statutoryAnchor ? <p className="line-clamp-2 text-sm text-slate-800">{lesson.statutoryAnchor}</p> : null}
     </div>
   );
 }
@@ -84,10 +83,6 @@ function LessonDetail({ lesson }: { lesson: FeedLessonView }) {
           </section>
         ) : null}
         {lesson.displaySummary ? <p className="text-sm text-slate-800">{lesson.displaySummary}</p> : null}
-        <p className="text-sm text-slate-800">
-          <span className="font-semibold text-slate-900">Rule: </span>
-          {lesson.violationRule}
-        </p>
         {lesson.statutoryAnchor ? (
           <p className="text-sm text-slate-800">
             <span className="font-semibold text-slate-900">Statutory anchor: </span>
@@ -125,8 +120,7 @@ function LessonDetail({ lesson }: { lesson: FeedLessonView }) {
 }
 
 function ToggleButton({ lesson, open, onToggle, controls, withText }: { lesson: FeedLessonView; open: boolean; onToggle: () => void; controls: string; withText?: boolean }) {
-  const { rule } = splitRule(lesson.violationRule);
-  const name = `${open ? "Hide" : "Show"} details for ${lesson.tool}${rule ? `, ${rule}` : ""}`;
+  const name = `${open ? "Hide" : "Show"} details for ${lesson.tool}${lesson.statutoryAnchor ? `, ${lesson.statutoryAnchor}` : ""}`;
   return (
     <button
       type="button"
@@ -219,7 +213,7 @@ export default function FeedTable({ lessons, labelledBy }: FeedTableProps) {
                     <ToolChip tool={lesson.tool} />
                   </td>
                   <td className="px-4 py-3">
-                    <RuleCell lesson={lesson} />
+                    <ViolationCell lesson={lesson} />
                   </td>
                   <td className="px-4 py-3">
                     <FixCell lesson={lesson} />
@@ -258,7 +252,7 @@ export default function FeedTable({ lessons, labelledBy }: FeedTableProps) {
               </div>
               <div className="mt-3">
                 <p className="eyebrow">Violation</p>
-                <RuleCell lesson={lesson} />
+                <ViolationCell lesson={lesson} />
               </div>
               <div className="mt-3">
                 <p className="eyebrow">Fix</p>

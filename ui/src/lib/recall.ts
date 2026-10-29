@@ -115,7 +115,6 @@ export interface RecallLessonView {
   reviewStatus: "approved" | "pending";
   domain: string;
   tool: string;
-  violationRule: string;
   steeringDirective: string | null;
   statutoryAnchor: string | null;
   compliantArguments: JsonObject;
@@ -146,7 +145,6 @@ export function parseRecallResponse(body: unknown): RecallOutcome | null {
     (lesson.review_status !== "approved" && lesson.review_status !== "pending") ||
     typeof lesson.domain !== "string" ||
     typeof lesson.tool !== "string" ||
-    typeof lesson.violation_rule !== "string" ||
     steering === undefined ||
     anchor === undefined ||
     !isPlainObject(lesson.compliant_arguments) ||
@@ -164,7 +162,6 @@ export function parseRecallResponse(body: unknown): RecallOutcome | null {
       reviewStatus: lesson.review_status,
       domain: lesson.domain,
       tool: lesson.tool,
-      violationRule: lesson.violation_rule,
       steeringDirective: steering,
       statutoryAnchor: anchor,
       compliantArguments: lesson.compliant_arguments,
