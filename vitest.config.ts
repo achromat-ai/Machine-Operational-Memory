@@ -24,6 +24,9 @@ export default defineConfig(async () => {
             RAMEN_API_KEY: "test-only-ramen-api-key",
             MOM_ATTESTATION_PRIVATE_KEY: "MC4CAQAwBQYDK2VwBCIEIO0fsf88oiq8l00hvT7YFE6u3iL3LhI2bFxBXUqPegRO",
             VISIBILITY_KEY: "KbMwRvco4ocXNheokWekSaHne7TLBzTUQ8eGHUGnj0A=",
+            // Dummy values: the Analytics Engine SQL API is mocked in every telemetry test (test/fixtures/cf-analytics.ts).
+            CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+            ANALYTICS_API_TOKEN: "test-only-analytics-api-token",
           },
         },
       }),

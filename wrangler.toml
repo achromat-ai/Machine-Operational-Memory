@@ -126,9 +126,14 @@ namespace_id = "1004"
 simple = { limit = 30, period = 60 }
 
 # Secrets (wrangler secret put <NAME>, never vars): IP_HMAC_KEY, POW_CHALLENGE_HMAC_KEY,
-# RAMEN_API_KEY, MOM_ATTESTATION_PRIVATE_KEY, VISIBILITY_KEY.
+# RAMEN_API_KEY, MOM_ATTESTATION_PRIVATE_KEY, VISIBILITY_KEY, ANALYTICS_API_TOKEN (a read-only
+# Account Analytics token for GET /api/v1/admin/telemetry; never the wrangler deploy token).
 [vars]
 POW_DIFFICULTY_BITS = "22"
+# The account ID is an identifier, not a credential, but the committed file still carries only the placeholder:
+# scripts/deploy-config.mjs replaces every occurrence from CLOUDFLARE_ACCOUNT_ID in the local .env. An unfilled
+# placeholder makes GET /api/v1/admin/telemetry answer 503 instead of calling Cloudflare.
+CLOUDFLARE_ACCOUNT_ID = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
 
 # Retries lesson triage and Vectorize sync that the request-time run did not finish
 # (src/review/pipeline.ts reconcile).

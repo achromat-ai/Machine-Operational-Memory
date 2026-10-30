@@ -5,6 +5,9 @@
  *   POST /api/v1/admin/review   approve, reject or quarantine (retract) one lesson
  *   POST /api/v1/admin/seed     write up to 10 receipt-verified BLOCK/ALLOW pairs as approved lessons
  *                               (src/review/seed.ts)
+ *   GET  /api/v1/admin/telemetry  the activation funnel by ref over a trailing window (?window=24h|7d, default 7d),
+ *                               read from Analytics Engine through the Cloudflare SQL API (src/analytics-query.ts).
+ *                               Needs CLOUDFLARE_ACCOUNT_ID and the ANALYTICS_API_TOKEN secret; answers 503 without them.
  *
  * Access: app.ts puts every /api/v1 route behind the Ed25519 signed-request middleware, then this
  * router's requireAdminIdentity() requires an active admin key (agent_state role + the insert-only
@@ -25,6 +28,7 @@
  * (provenance 'admin_seed') are exempt, because seeding is an admin act published by admins.
  */
 import { Hono } from "hono";
+import { AnalyticsQueryError, analyticsConfig, loadTelemetryReport } from "../analytics-query";
 import type { Env } from "../env";
 import { apiError, parseJsonBytes, queryParams } from "../http";
 import { requireAdminIdentity, type AuthVariables } from "../middleware/auth";
@@ -36,6 +40,7 @@ import {
   AdminReviewRequest,
   SeedRequest,
   PendingQuery,
+  TelemetryQuery,
   decodeCursor,
   encodeCursor,
   sha256Hex,
@@ -220,6 +225,31 @@ export function createAdminRoutes(options: AdminOptions) {
       lessons: page.map(presentLesson),
       next_cursor: rows.length > query.limit && last ? encodeCursor(last.updated_at_ms, last.lesson_id) : null,
     });
+  });
+
+  /**
+   * The activation funnel by ref. Read-only and side-effect free: three flat Analytics Engine SQL queries,
+   * merged in the Worker (src/analytics-query.ts). Cloudflare's error text is never relayed.
+   */
+  admin.get("/telemetry", async (c) => {
+    const params = queryParams(c.req.url);
+    if (params === null) return apiError(c, 400, "INVALID_REQUEST", "query parameters must not repeat");
+    const parsed = TelemetryQuery.safeParse(params);
+    if (!parsed.success) {
+      const failure = toValidationFailure(parsed.error);
+      return apiError(c, 400, failure.code, "query is invalid", failure.details);
+    }
+    const config = analyticsConfig(c.env);
+    if (config === null) {
+      console.error("achromat-mom telemetry misconfigured: CLOUDFLARE_ACCOUNT_ID or ANALYTICS_API_TOKEN is missing or malformed");
+      return apiError(c, 503, "SERVICE_MISCONFIGURED", "telemetry is temporarily unavailable");
+    }
+    try {
+      return c.json({ success: true, ...(await loadTelemetryReport(config, parsed.data.window)) });
+    } catch (error) {
+      if (error instanceof AnalyticsQueryError) return apiError(c, error.status, error.code, error.message);
+      throw error;
+    }
   });
 
   admin.post("/review", async (c) => {

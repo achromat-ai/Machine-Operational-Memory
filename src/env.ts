@@ -25,6 +25,17 @@ export interface Env {
   SEARCH_LIMITER: RateLimit;
   /** achromat_mom_telemetry: anonymised /recall and /calibrate usage data points (src/telemetry.ts). */
   ANALYTICS: AnalyticsEngineDataset;
+  /**
+   * Cloudflare account ID (32 hex characters) that owns the achromat_mom_telemetry dataset. A plain var: wrangler.toml
+   * holds the placeholder and scripts/deploy-config.mjs fills it from the local .env at deploy time.
+   */
+  CLOUDFLARE_ACCOUNT_ID: string;
+  /**
+   * Secret: a READ-ONLY Cloudflare API token (Account | Account Analytics | Read) for the Analytics Engine SQL API
+   * behind GET /api/v1/admin/telemetry (src/analytics-query.ts). Deliberately not named CLOUDFLARE_API_TOKEN: wrangler
+   * reads that name as the deploy credential, and the two must never be the same token.
+   */
+  ANALYTICS_API_TOKEN: string;
   /** Secret: HMAC key for caller IP prefixes. Raw IPs are never stored. */
   IP_HMAC_KEY: string;
   /** Hashcash difficulty for new challenges (16-40). Production: 22. */

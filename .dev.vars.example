@@ -9,3 +9,7 @@ POW_CHALLENGE_HMAC_KEY=
 MOM_ATTESTATION_PRIVATE_KEY=
 # Base64 of 32 random bytes: `openssl rand -base64 32`. Permanent in production (no rotation).
 VISIBILITY_KEY=
+# Read-only Cloudflare API token for GET /api/v1/admin/telemetry: permission Account | Account Analytics | Read, nothing else.
+# Never the wrangler deploy token. The account ID comes from CLOUDFLARE_ACCOUNT_ID (a var, see wrangler.toml); for
+# `wrangler dev` add it here too, e.g. CLOUDFLARE_ACCOUNT_ID=<32 hex characters>.
+ANALYTICS_API_TOKEN=

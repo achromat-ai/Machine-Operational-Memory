@@ -784,6 +784,12 @@ export const PendingQuery = z.strictObject({
 });
 export type PendingQuery = z.output<typeof PendingQuery>;
 
+/** Query of GET /api/v1/admin/telemetry: the trailing window. Analytics Engine keeps three months, so only short windows are offered. */
+export const TelemetryQuery = z.strictObject({
+  window: z.enum(["24h", "7d"]).default("7d"),
+});
+export type TelemetryQuery = z.output<typeof TelemetryQuery>;
+
 /** Query of GET /api/v1/bounties. */
 export const BountyQuery = z.strictObject({
   domain: DomainSlug.optional(),

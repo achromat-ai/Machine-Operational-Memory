@@ -25,11 +25,13 @@ import {
   provisionAgent,
   reviewActions,
 } from "./fixtures/ledger";
+import { ANALYTICS_URL, TEST_ANALYTICS_TOKEN, mockCloudflareAnalytics, type CfRows } from "./fixtures/cf-analytics";
 import { freshWorld, type World } from "./fixtures/world";
 import { ORIGIN, call, freshIp, signatureHeaders, type TestAgent } from "./helpers";
 
 const REVIEW = "/api/v1/admin/review";
 const PENDING = "/api/v1/admin/pending";
+const TELEMETRY = "/api/v1/admin/telemetry";
 const BOUNTIES = "/api/v1/bounties";
 
 interface ApiResult {
@@ -43,7 +45,7 @@ async function api(
   world: World,
   agent: TestAgent,
   path: string,
-  init: { payload?: unknown; nonce?: string } = {},
+  init: { payload?: unknown; nonce?: string; env?: typeof env } = {},
 ): Promise<ApiResult> {
   const method = init.payload === undefined ? "GET" : "POST";
   const body = init.payload === undefined ? undefined : JSON.stringify(init.payload);
@@ -55,7 +57,7 @@ async function api(
   headers.set("CF-Connecting-IP", freshIp());
   if (body !== undefined) headers.set("Content-Type", "application/json");
   const ctx = createExecutionContext();
-  const response = await world.worker.fetch(new Request(ORIGIN + path, { method, headers, ...(body === undefined ? {} : { body }) }), env, ctx);
+  const response = await world.worker.fetch(new Request(ORIGIN + path, { method, headers, ...(body === undefined ? {} : { body }) }), init.env ?? env, ctx);
   await waitOnExecutionContext(ctx);
   return { status: response.status, json: await response.json(), response };
 }
@@ -839,6 +841,293 @@ describe("GET /api/v1/bounties", () => {
       const result = await api(world, internal.agent, `${BOUNTIES}?${query}`);
       expect(result.status, query).toBe(400);
       expect(result.json.code, query).toBe("INVALID_REQUEST");
+    }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// GET /api/v1/admin/telemetry (Cloudflare Analytics Engine SQL API, mocked)
+// ════════════════════════════════════════════════════════════════════════
+
+describe("GET /api/v1/admin/telemetry", () => {
+  /** Funnel events by ref (some counts arrive as strings, as Cloudflare's JSON format can send them). */
+  const ROWS: CfRows = {
+    funnel: [
+      { ref_tag: "launch-post", step: "skill_view", events: "300" },
+      { ref_tag: "launch-post", step: "challenge_issued", events: 70 },
+      { ref_tag: "launch-post", step: "agent_register", events: 3 },
+      { ref_tag: "", step: "skill_view", events: 100 },
+      { ref_tag: "", step: "agent_register", events: 1 },
+      { ref_tag: "NOT A SLUG", step: "skill_view", events: 5 },
+      { ref_tag: "hn", step: "skill_view", events: 20 },
+      { ref_tag: "hn", step: "challenge_issued", events: 10 },
+    ],
+    registrations: [
+      { agent_id: "a1", ref_tag: "launch-post" },
+      { agent_id: "a2", ref_tag: "launch-post" },
+      { agent_id: "a3", ref_tag: "launch-post" },
+      { agent_id: "a4", ref_tag: "" },
+    ],
+    activity: [
+      { agent_id: "a1", step: "recall", events: "5" },
+      { agent_id: "a1", step: "calibrate_trap", events: 2 },
+      { agent_id: "a1", step: "calibrate_fix", events: 1 },
+      { agent_id: "a2", step: "recall", events: 3 },
+      { agent_id: "a4", step: "recall", events: 4 },
+      // Registered before the window: not in the cohort, so ignored.
+      { agent_id: "a9", step: "recall", events: 100 },
+      { agent_id: "a9", step: "calibrate_trap", events: 100 },
+    ],
+  };
+
+  const EMPTY_TOTALS = { skill_view: 0, challenge_issued: 0, agent_register: 0, agents_recalled: 0, agents_calibrated: 0, recall_requests: 0, calibrate_requests: 0 };
+
+  it("answers 401 to unsigned requests and 403 to non-admin keys, without calling Cloudflare", async () => {
+    const mock = mockCloudflareAnalytics(ROWS);
+    try {
+      const world = await freshWorld();
+      const unsigned = await call(TELEMETRY);
+      expect(unsigned.status).toBe(401);
+      expect(await unsigned.json()).toMatchObject({ code: "AGENT_SIGNATURE_REQUIRED" });
+
+      for (const agent of [(await community()).agent, (await provisionAgent("internal")).agent, (await provisionAgent("platform")).agent]) {
+        const result = await api(world, agent, TELEMETRY);
+        expect(result.status).toBe(403);
+        expect(result.json.code).toBe("AGENT_ROLE_FORBIDDEN");
+      }
+      expect(mock.requests).toHaveLength(0);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("queries the SQL API with the read-only token and returns the merged funnel by ref", async () => {
+    const mock = mockCloudflareAnalytics(ROWS);
+    try {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const result = await api(world, admin.agent, TELEMETRY);
+
+      expect(result.status).toBe(200);
+      expect(result.response.headers.get("Cache-Control")).toBe("no-store");
+
+      // Three requests, one per query, each to the account's SQL endpoint with the bearer token and nothing request-controlled.
+      expect(mock.requests.map((request) => request.query).sort()).toEqual(["activity", "funnel", "registrations"]);
+      for (const request of mock.requests) {
+        expect(request.url).toBe(ANALYTICS_URL);
+        expect(request.method).toBe("POST");
+        expect(request.authorization).toBe(`Bearer ${TEST_ANALYTICS_TOKEN}`);
+        expect(request.contentType).toBe("text/plain");
+        expect(request.sql).toContain("FROM achromat_mom_telemetry");
+        expect(request.sql).toContain("timestamp > NOW() - INTERVAL '7' DAY");
+        expect(request.sql).toContain("FORMAT JSON");
+        expect(request.sql).not.toMatch(/\bJOIN\b|\bUNION\b/i);
+      }
+      // Counts are weighted by the sample interval, never plain row counts.
+      expect(mock.requests.find((request) => request.query === "funnel")!.sql).toContain("SUM(_sample_interval)");
+      expect(mock.requests.find((request) => request.query === "activity")!.sql).toContain("SUM(_sample_interval)");
+
+      const json = result.json;
+      expect(Object.keys(json).sort()).toEqual(["by_ref", "conversion", "dataset", "generated_at", "notes", "success", "totals", "truncated", "window"]);
+      expect(json.success).toBe(true);
+      expect(json.dataset).toBe("achromat_mom_telemetry");
+      expect(json.truncated).toBe(false);
+      expect(json.window.name).toBe("7d");
+      expect(Date.parse(json.window.to) - Date.parse(json.window.from)).toBe(7 * 24 * 60 * 60 * 1000);
+      expect(json.generated_at).toBe(json.window.to);
+
+      // Sorted by registrations; the invalid slug and the empty ref both land under null; a ref with no registrations still shows.
+      expect(json.by_ref).toEqual([
+        { ref: "launch-post", skill_view: 300, challenge_issued: 70, agent_register: 3, agents_recalled: 2, agents_calibrated: 1, recall_requests: 8, calibrate_requests: 3 },
+        { ref: null, skill_view: 105, challenge_issued: 0, agent_register: 1, agents_recalled: 1, agents_calibrated: 0, recall_requests: 4, calibrate_requests: 0 },
+        { ref: "hn", skill_view: 20, challenge_issued: 10, agent_register: 0, agents_recalled: 0, agents_calibrated: 0, recall_requests: 0, calibrate_requests: 0 },
+      ]);
+      expect(json.totals).toEqual({ skill_view: 425, challenge_issued: 80, agent_register: 4, agents_recalled: 3, agents_calibrated: 1, recall_requests: 12, calibrate_requests: 3 });
+      expect(json.conversion).toEqual({
+        view_to_challenge: 0.1882,
+        challenge_to_register: 0.05,
+        register_to_recall: 0.75,
+        register_to_calibrate: 0.25,
+      });
+
+      // The notes explain the sampling behaviour and the cohort.
+      const notes: string = json.notes.join("\n");
+      expect(json.notes.length).toBeGreaterThan(0);
+      expect(notes).toContain("SUM(_sample_interval)");
+      expect(notes).toMatch(/downsamples/);
+      expect(notes).toContain("'anonymous'");
+      expect(notes).toMatch(/registered inside the window|fell inside the window/);
+
+      // Neither the token nor any request detail leaks into the response.
+      expect(JSON.stringify(json)).not.toContain(TEST_ANALYTICS_TOKEN);
+      expect(JSON.stringify(json)).not.toContain("a9");
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("uses a 24 hour window on request", async () => {
+    const mock = mockCloudflareAnalytics(ROWS);
+    try {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const result = await api(world, admin.agent, `${TELEMETRY}?window=24h`);
+      expect(result.status).toBe(200);
+      expect(result.json.window.name).toBe("24h");
+      expect(Date.parse(result.json.window.to) - Date.parse(result.json.window.from)).toBe(24 * 60 * 60 * 1000);
+      expect(mock.requests).toHaveLength(3);
+      for (const request of mock.requests) {
+        expect(request.sql).toContain("INTERVAL '1' DAY");
+        expect(request.sql).not.toContain("INTERVAL '7' DAY");
+      }
+      expect((await api(world, admin.agent, `${TELEMETRY}?window=7d`)).json.window.name).toBe("7d");
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("rejects bad query parameters with 400 before any call to Cloudflare, and never puts them in SQL", async () => {
+    const mock = mockCloudflareAnalytics(ROWS);
+    try {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const attacks = ["window=30d", "window=1h", "window=", "window=7D", "window=7d%27%20OR%201%3D1", "window=24h&window=7d", "limit=5", "ref=launch-post", "window=7d&x=1"];
+      for (const query of attacks) {
+        const result = await api(world, admin.agent, `${TELEMETRY}?${query}`);
+        expect(result.status, query).toBe(400);
+        expect(result.json.code, query).toBe("INVALID_REQUEST");
+      }
+      expect(mock.requests).toHaveLength(0);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("returns zero totals and null rates, never NaN, when there is no data", async () => {
+    const mock = mockCloudflareAnalytics({});
+    try {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const result = await api(world, admin.agent, TELEMETRY);
+      expect(result.status).toBe(200);
+      expect(result.json.by_ref).toEqual([]);
+      expect(result.json.totals).toEqual(EMPTY_TOTALS);
+      expect(result.json.conversion).toEqual({ view_to_challenge: null, challenge_to_register: null, register_to_recall: null, register_to_calibrate: null });
+      expect(result.json.truncated).toBe(false);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("flags truncation when a query returns its row limit", async () => {
+    const full = Array.from({ length: 10_000 }, (_, index) => ({ agent_id: `agent-${index}`, ref_tag: "" }));
+    const mock = mockCloudflareAnalytics({ registrations: full });
+    try {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const result = await api(world, admin.agent, TELEMETRY);
+      expect(result.status).toBe(200);
+      expect(result.json.truncated).toBe(true);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("answers 503 without calling Cloudflare when the account ID or token is missing or malformed", async () => {
+    const mock = mockCloudflareAnalytics(ROWS);
+    try {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const broken: Array<Record<string, string>> = [
+        { ANALYTICS_API_TOKEN: "" },
+        { ANALYTICS_API_TOKEN: "   " },
+        { CLOUDFLARE_ACCOUNT_ID: "" },
+        { CLOUDFLARE_ACCOUNT_ID: "<YOUR_CLOUDFLARE_ACCOUNT_ID>" },
+        { CLOUDFLARE_ACCOUNT_ID: "0123456789ABCDEF0123456789ABCDEF" },
+        { CLOUDFLARE_ACCOUNT_ID: "../../evil" },
+      ];
+      for (const override of broken) {
+        const result = await api(world, admin.agent, TELEMETRY, { env: { ...env, ...override } as typeof env });
+        expect(result.status, JSON.stringify(override)).toBe(503);
+        expect(result.json.code).toBe("SERVICE_MISCONFIGURED");
+      }
+      expect(mock.requests).toHaveLength(0);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("answers 502 UPSTREAM_UNAVAILABLE when Cloudflare refuses, without relaying its error text or the token", async () => {
+    const body = JSON.stringify({ success: false, errors: [{ message: "secret account detail" }] });
+    for (const status of [400, 403, 429, 500]) {
+      const mock = mockCloudflareAnalytics(ROWS, { funnel: { status, body } });
+      try {
+        const world = await freshWorld();
+        const admin = await provisionAgent("admin");
+        const result = await api(world, admin.agent, TELEMETRY);
+        expect(result.status, String(status)).toBe(502);
+        expect(result.json.code).toBe("UPSTREAM_UNAVAILABLE");
+        const text = JSON.stringify(result.json);
+        expect(text).not.toContain("secret account detail");
+        expect(text).not.toContain(TEST_ANALYTICS_TOKEN);
+      } finally {
+        mock.restore();
+      }
+    }
+  });
+
+  it("answers 502 when the network fails and 504 when Cloudflare times out", async () => {
+    const network = mockCloudflareAnalytics(ROWS, { activity: { throws: new TypeError("connection reset") } });
+    try {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const result = await api(world, admin.agent, TELEMETRY);
+      expect(result.status).toBe(502);
+      expect(result.json.code).toBe("UPSTREAM_UNAVAILABLE");
+    } finally {
+      network.restore();
+    }
+
+    const timeout = mockCloudflareAnalytics(ROWS, { registrations: { throws: Object.assign(new Error("timed out"), { name: "TimeoutError" }) } });
+    try {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const result = await api(world, admin.agent, TELEMETRY);
+      expect(result.status).toBe(504);
+      expect(result.json.code).toBe("UPSTREAM_TIMEOUT");
+    } finally {
+      timeout.restore();
+    }
+  });
+
+  it("answers 502 UPSTREAM_INVALID for a reply that is not the expected JSON", async () => {
+    const replies = ["not json", "{}", JSON.stringify({ data: "nope" }), JSON.stringify({ data: [{ ref_tag: "x", step: "skill_view", events: "many" }] }), JSON.stringify({ data: [{ ref_tag: "x", step: "skill_view", events: -1 }] })];
+    for (const body of replies) {
+      const mock = mockCloudflareAnalytics(ROWS, { funnel: { body } });
+      try {
+        const world = await freshWorld();
+        const admin = await provisionAgent("admin");
+        const result = await api(world, admin.agent, TELEMETRY);
+        expect(result.status, body).toBe(502);
+        expect(result.json.code, body).toBe("UPSTREAM_INVALID");
+      } finally {
+        mock.restore();
+      }
+    }
+  });
+
+  it("shares the per-key admin budget with the other admin reads", async () => {
+    const mock = mockCloudflareAnalytics(ROWS);
+    try {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      for (let i = 0; i < ADMIN_LIMIT_PER_AGENT_PER_HOUR; i++) await consumeUsage(env, adminUsageKey(admin.key), ADMIN_LIMIT_PER_AGENT_PER_HOUR);
+      const limited = await api(world, admin.agent, TELEMETRY);
+      expect(limited.status).toBe(429);
+      expect(limited.json.code).toBe("RATE_LIMITED");
+      expect(mock.requests).toHaveLength(0);
+    } finally {
+      mock.restore();
     }
   });
 });
