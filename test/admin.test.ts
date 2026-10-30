@@ -878,9 +878,25 @@ describe("GET /api/v1/admin/telemetry", () => {
       { agent_id: "a9", step: "recall", events: 100 },
       { agent_id: "a9", step: "calibrate_trap", events: 100 },
     ],
+    failures: [
+      { code: "POW_INVALID", endpoint: "register", ref_tag: "launch-post", events: 4 },
+      { code: "CHALLENGE_WRONG_NETWORK", endpoint: "register", ref_tag: "", events: "3" },
+      { code: "POW_INVALID", endpoint: "register", ref_tag: "", events: 1 },
+      { code: "RATE_LIMITED", endpoint: "challenge", ref_tag: "NOT A SLUG", events: 2 },
+    ],
+    searches: [
+      { domain: "fintech", outcome: "hit", events: 12 },
+      { domain: "fintech", outcome: "miss", events: "6" },
+      { domain: "devsecops", outcome: "miss", events: 2 },
+    ],
+    lessonViews: [
+      { ref_tag: "audit", outcome: "hit", events: 9 },
+      { ref_tag: "audit", outcome: "miss", events: 1 },
+      { ref_tag: "launch-post", outcome: "hit", events: "2" },
+    ],
   };
 
-  const EMPTY_TOTALS = { skill_view: 0, challenge_issued: 0, agent_register: 0, agents_recalled: 0, agents_calibrated: 0, recall_requests: 0, calibrate_requests: 0 };
+  const EMPTY_TOTALS = { skill_view: 0, challenge_issued: 0, agent_register: 0, agents_recalled: 0, agents_calibrated: 0, recall_requests: 0, calibrate_requests: 0, registration_failed: 0 };
 
   it("answers 401 to unsigned requests and 403 to non-admin keys, without calling Cloudflare", async () => {
     const mock = mockCloudflareAnalytics(ROWS);
@@ -911,8 +927,8 @@ describe("GET /api/v1/admin/telemetry", () => {
       expect(result.status).toBe(200);
       expect(result.response.headers.get("Cache-Control")).toBe("no-store");
 
-      // Three requests, one per query, each to the account's SQL endpoint with the bearer token and nothing request-controlled.
-      expect(mock.requests.map((request) => request.query).sort()).toEqual(["activity", "funnel", "registrations"]);
+      // Six requests, one per query, each to the account's SQL endpoint with the bearer token and nothing request-controlled.
+      expect(mock.requests.map((request) => request.query).sort()).toEqual(["activity", "failures", "funnel", "lessonViews", "registrations", "searches"]);
       for (const request of mock.requests) {
         expect(request.url).toBe(ANALYTICS_URL);
         expect(request.method).toBe("POST");
@@ -928,7 +944,7 @@ describe("GET /api/v1/admin/telemetry", () => {
       expect(mock.requests.find((request) => request.query === "activity")!.sql).toContain("SUM(_sample_interval)");
 
       const json = result.json;
-      expect(Object.keys(json).sort()).toEqual(["by_ref", "conversion", "dataset", "generated_at", "notes", "success", "totals", "truncated", "window"]);
+      expect(Object.keys(json).sort()).toEqual(["audit_links", "by_ref", "conversion", "dataset", "failures", "generated_at", "notes", "searches", "success", "totals", "truncated", "window"]);
       expect(json.success).toBe(true);
       expect(json.dataset).toBe("achromat_mom_telemetry");
       expect(json.truncated).toBe(false);
@@ -938,11 +954,37 @@ describe("GET /api/v1/admin/telemetry", () => {
 
       // Sorted by registrations; the invalid slug and the empty ref both land under null; a ref with no registrations still shows.
       expect(json.by_ref).toEqual([
-        { ref: "launch-post", skill_view: 300, challenge_issued: 70, agent_register: 3, agents_recalled: 2, agents_calibrated: 1, recall_requests: 8, calibrate_requests: 3 },
-        { ref: null, skill_view: 105, challenge_issued: 0, agent_register: 1, agents_recalled: 1, agents_calibrated: 0, recall_requests: 4, calibrate_requests: 0 },
-        { ref: "hn", skill_view: 20, challenge_issued: 10, agent_register: 0, agents_recalled: 0, agents_calibrated: 0, recall_requests: 0, calibrate_requests: 0 },
+        { ref: "launch-post", skill_view: 300, challenge_issued: 70, agent_register: 3, agents_recalled: 2, agents_calibrated: 1, recall_requests: 8, calibrate_requests: 3, registration_failed: 4 },
+        { ref: null, skill_view: 105, challenge_issued: 0, agent_register: 1, agents_recalled: 1, agents_calibrated: 0, recall_requests: 4, calibrate_requests: 0, registration_failed: 6 },
+        { ref: "hn", skill_view: 20, challenge_issued: 10, agent_register: 0, agents_recalled: 0, agents_calibrated: 0, recall_requests: 0, calibrate_requests: 0, registration_failed: 0 },
       ]);
-      expect(json.totals).toEqual({ skill_view: 425, challenge_issued: 80, agent_register: 4, agents_recalled: 3, agents_calibrated: 1, recall_requests: 12, calibrate_requests: 3 });
+      expect(json.totals).toEqual({ skill_view: 425, challenge_issued: 80, agent_register: 4, agents_recalled: 3, agents_calibrated: 1, recall_requests: 12, calibrate_requests: 3, registration_failed: 10 });
+
+      // Refusals by response code and endpoint (counts that arrive as strings are summed), most frequent first.
+      expect(json.failures).toEqual({
+        total: 10,
+        by_code: [
+          { code: "POW_INVALID", endpoint: "register", events: 5 },
+          { code: "CHALLENGE_WRONG_NETWORK", endpoint: "register", events: 3 },
+          { code: "RATE_LIMITED", endpoint: "challenge", events: 2 },
+        ],
+      });
+      expect(json.searches).toEqual({
+        total: 20,
+        hits: 12,
+        by_domain: [
+          { domain: "fintech", searches: 18, hits: 12 },
+          { domain: "devsecops", searches: 2, hits: 0 },
+        ],
+      });
+      expect(json.audit_links).toEqual({
+        views: 12,
+        found: 11,
+        by_ref: [
+          { ref: "audit", views: 10, found: 9 },
+          { ref: "launch-post", views: 2, found: 2 },
+        ],
+      });
       expect(json.conversion).toEqual({
         view_to_challenge: 0.1882,
         challenge_to_register: 0.05,
@@ -956,6 +998,8 @@ describe("GET /api/v1/admin/telemetry", () => {
       expect(notes).toContain("SUM(_sample_interval)");
       expect(notes).toMatch(/downsamples/);
       expect(notes).toContain("'anonymous'");
+      expect(notes).toMatch(/failures count every refused/);
+      expect(notes).toMatch(/audit_links counts opened citation links/);
       expect(notes).toMatch(/registered inside the window|fell inside the window/);
 
       // Neither the token nor any request detail leaks into the response.
@@ -975,7 +1019,7 @@ describe("GET /api/v1/admin/telemetry", () => {
       expect(result.status).toBe(200);
       expect(result.json.window.name).toBe("24h");
       expect(Date.parse(result.json.window.to) - Date.parse(result.json.window.from)).toBe(24 * 60 * 60 * 1000);
-      expect(mock.requests).toHaveLength(3);
+      expect(mock.requests).toHaveLength(6);
       for (const request of mock.requests) {
         expect(request.sql).toContain("INTERVAL '1' DAY");
         expect(request.sql).not.toContain("INTERVAL '7' DAY");
@@ -1012,6 +1056,9 @@ describe("GET /api/v1/admin/telemetry", () => {
       expect(result.status).toBe(200);
       expect(result.json.by_ref).toEqual([]);
       expect(result.json.totals).toEqual(EMPTY_TOTALS);
+      expect(result.json.failures).toEqual({ total: 0, by_code: [] });
+      expect(result.json.searches).toEqual({ total: 0, hits: 0, by_domain: [] });
+      expect(result.json.audit_links).toEqual({ views: 0, found: 0, by_ref: [] });
       expect(result.json.conversion).toEqual({ view_to_challenge: null, challenge_to_register: null, register_to_recall: null, register_to_calibrate: null });
       expect(result.json.truncated).toBe(false);
     } finally {

@@ -12,7 +12,7 @@ This document holds only what is specific to this domain: the expected tool shap
 ## 1. How to use this reference
 
 1. Pick the shape below that matches the action your agent is about to take, and build the full `arguments` object in it. Use the same key names and nesting every time, because key names and nesting take part in recall matching and values do not.
-2. Send it to `POST /api/v1/recall` with `"domain": "devsecops"` and your tool name. If a lesson matches, adopt its `compliant_arguments` as your template (core protocol, section 4.4).
+2. Send it to `POST /api/v1/recall` with `"domain": "devsecops"` and your tool name. If a lesson matches, adopt its `compliant_arguments` as your template (core protocol, section 4.4) and cite it in your output (core protocol, section 4.6).
 3. If nothing matches, send the call to `POST /api/v1/calibrate` and follow the steering directive (core protocol, sections 5 and 6).
 
 ### 1.1 About the tool names

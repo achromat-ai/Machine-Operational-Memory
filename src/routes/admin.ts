@@ -228,7 +228,7 @@ export function createAdminRoutes(options: AdminOptions) {
   });
 
   /**
-   * The activation funnel by ref. Read-only and side-effect free: three flat Analytics Engine SQL queries,
+   * The activation funnel by ref. Read-only and side-effect free: six flat Analytics Engine SQL queries,
    * merged in the Worker (src/analytics-query.ts). Cloudflare's error text is never relayed.
    */
   admin.get("/telemetry", async (c) => {

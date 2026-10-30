@@ -14,12 +14,13 @@ import ResultList from "./public/ResultList";
 import CopyButton from "./public/CopyButton";
 import FeedList from "./public/FeedList";
 import Hero from "./public/Hero";
+import LinkedLesson from "./public/LinkedLesson";
 import PublicPage from "./public/PublicPage";
 import SearchInput from "./public/SearchInput";
 import SimpleSearch from "./public/SimpleSearch";
 import SiteFooter from "./public/SiteFooter";
 import { createAdminSession } from "../lib/adminSession";
-import { initialFeedState, type FeedLessonView, type FeedState } from "../lib/feed";
+import { initialFeedState, type FeedLessonView, type FeedState, type LinkedLessonState } from "../lib/feed";
 import { initialRecallState, type RecallEntry, type RecallState } from "../lib/recall";
 import { initialSearchState, type SearchState } from "../lib/search";
 
@@ -638,5 +639,69 @@ describe("public page and routing", () => {
     expect(html).toContain("Loading…");
     expect(html).not.toContain("Private key (PEM)");
     expect(html).not.toContain('aria-label="Search lessons"');
+  });
+});
+
+describe("LinkedLesson", () => {
+  const ID = "22222222-2222-4222-8222-222222222222";
+  const lesson: FeedLessonView = {
+    lessonId: ID,
+    domain: "fintech",
+    tool: "transfer_funds",
+    steeringDirective: "Add a second approver. | Obtain an approved ticket first.",
+    statutoryAnchor: "FCA SYSC 6.1.1",
+    compliantArguments: FIX,
+    changedPaths: ["/approval/second_approver"],
+    displayTitle: null,
+    displaySummary: "Large transfers need two people.",
+    featured: false,
+  };
+  const render = (state: LinkedLessonState, inFeed = false) => renderToStaticMarkup(<LinkedLesson state={state} inFeed={inFeed} />);
+
+  it("shows nothing when the address names no lesson", () => {
+    expect(render({ phase: "none" })).toBe("");
+  });
+
+  it("announces the load while it runs", () => {
+    const html = render({ phase: "loading", id: ID });
+    expect(html).toContain('role="status"');
+    expect(html).toContain("Loading the linked lesson");
+  });
+
+  it("shows the lesson the link names, open, under the anchor the fragment points at", () => {
+    const html = render({ phase: "ready", id: ID, lesson });
+    expect(html).toContain(`id="lesson-${ID}"`);
+    expect(html).toContain('tabindex="-1"');
+    expect(html).toContain("Linked lesson");
+    expect(html).toContain("FCA SYSC 6.1.1");
+    expect(html).toMatch(/transfer_(<wbr\/>)?funds/); // the tool name may wrap at its separators
+    expect(html).toContain("Add a second approver.");
+    expect(html).toContain("Obtain an approved ticket first.");
+    expect(html).toContain("The fix");
+    expect(html).toContain("Large transfers need two people.");
+  });
+
+  it("states that the blocked call's values are not published, and shows no dates or blocked values", () => {
+    const html = render({ phase: "ready", id: ID, lesson: { ...lesson, ...({ updated_at: "2026-10-10T12:00:00.000Z", violation_rule: "Rule 4" } as object) } });
+    expect(html).toContain("The values of the call that was originally blocked are not published.");
+    for (const absent of ["<time", "dateTime", "2026-10-10", "Rule 4", "violation_rule", "null"]) expect(html, absent).not.toContain(absent);
+  });
+
+  it("stays out of the way when the directory below already lists the lesson", () => {
+    expect(render({ phase: "ready", id: ID, lesson }, true)).toBe("");
+  });
+
+  it("answers a lesson that is not public with one neutral line that does not say why", () => {
+    const html = render({ phase: "missing", id: ID });
+    expect(html).toContain("This lesson is not public");
+    expect(html).toContain("withdrawn");
+    for (const absent of ["pending", "rejected", "quarantined", "does not exist", "404"]) expect(html, absent).not.toContain(absent);
+  });
+
+  it("tells the visitor to reload when the lesson could not be fetched, with no codes or error text", () => {
+    const html = render({ phase: "error", id: ID });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("did not load");
+    expect(html).toContain("Reload the page");
   });
 });

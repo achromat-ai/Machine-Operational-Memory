@@ -5,12 +5,15 @@
  *   POST https://api.cloudflare.com/client/v4/accounts/{account_id}/analytics_engine/sql
  *   Authorization: Bearer {ANALYTICS_API_TOKEN}      (read-only: Account | Account Analytics | Read)
  *
- * That API takes SQL text and has no JOIN or UNION, so the report is built from three flat queries that are
+ * That API takes SQL text and has no JOIN or UNION, so the report is built from six flat queries that are
  * merged here, in the Worker:
  *
  *   funnel         anonymous and authenticated funnel steps by ref: skill_view, challenge_issued, agent_register
  *   registrations  one row per agent registered in the window: its anonymised id and the ref it registered with
  *   activity       recall and calibrate counts per agent
+ *   failures       refused challenge and register requests, by response code, endpoint and ref
+ *   searches       landing-page searches (human_search), by domain and outcome
+ *   lesson_views   opened audit links that carried a ref (lesson_view), by ref and outcome
  *
  * /recall and /calibrate points carry no ref. They are attributed through the anonymised agent id that
  * agent_register shares with that key's later points, so recall and calibrate figures describe the cohort of agents
@@ -92,6 +95,36 @@ LIMIT ${ANALYTICS_ROW_LIMIT}
 FORMAT JSON`;
 }
 
+/** Refused challenge/register requests, by code, endpoint and ref. blob5 is the code, blob3 the endpoint. */
+export function failuresSql(window: TelemetryWindow): string {
+  return `SELECT blob5 AS code, blob3 AS endpoint, blob6 AS ref_tag, SUM(_sample_interval) AS events
+FROM ${TELEMETRY_DATASET}
+WHERE ${since(TELEMETRY_WINDOWS[window].days)} AND blob1 = 'registration_failed'
+GROUP BY code, endpoint, ref_tag
+LIMIT ${ANALYTICS_ROW_LIMIT}
+FORMAT JSON`;
+}
+
+/** Landing-page searches by validated domain and outcome (hit or miss). */
+export function searchesSql(window: TelemetryWindow): string {
+  return `SELECT blob2 AS domain, blob5 AS outcome, SUM(_sample_interval) AS events
+FROM ${TELEMETRY_DATASET}
+WHERE ${since(TELEMETRY_WINDOWS[window].days)} AND blob1 = 'human_search'
+GROUP BY domain, outcome
+LIMIT ${ANALYTICS_ROW_LIMIT}
+FORMAT JSON`;
+}
+
+/** Audit-link visits (only ever written when the link carried a ref), by ref and outcome. */
+export function lessonViewsSql(window: TelemetryWindow): string {
+  return `SELECT blob6 AS ref_tag, blob5 AS outcome, SUM(_sample_interval) AS events
+FROM ${TELEMETRY_DATASET}
+WHERE ${since(TELEMETRY_WINDOWS[window].days)} AND blob1 = 'lesson_view'
+GROUP BY ref_tag, outcome
+LIMIT ${ANALYTICS_ROW_LIMIT}
+FORMAT JSON`;
+}
+
 // ════════════════════════════════════════════════════════════════════════
 // Transport
 // ════════════════════════════════════════════════════════════════════════
@@ -114,6 +147,9 @@ const Text = z.string().nullish().transform((value) => value ?? "");
 const FunnelRow = z.object({ ref_tag: Text, step: z.string(), events: Count });
 const RegistrationRow = z.object({ agent_id: z.string().min(1), ref_tag: Text });
 const ActivityRow = z.object({ agent_id: z.string().min(1), step: z.string(), events: Count });
+const FailureRow = z.object({ code: z.string(), endpoint: Text, ref_tag: Text, events: Count });
+const SearchRow = z.object({ domain: Text, outcome: z.string(), events: Count });
+const LessonViewRow = z.object({ ref_tag: Text, outcome: z.string(), events: Count });
 
 function envelope<T extends z.ZodType>(row: T) {
   return z.object({ data: z.array(row) });
@@ -165,6 +201,9 @@ export async function queryAnalyticsEngine<T extends z.ZodType>(config: Analytic
 export type FunnelRow = z.output<typeof FunnelRow>;
 export type RegistrationRow = z.output<typeof RegistrationRow>;
 export type ActivityRow = z.output<typeof ActivityRow>;
+export type FailureRow = z.output<typeof FailureRow>;
+export type SearchRow = z.output<typeof SearchRow>;
+export type LessonViewRow = z.output<typeof LessonViewRow>;
 
 export interface RefMetrics {
   /** null: no ref, or a ref that is not a valid slug. */
@@ -176,6 +215,8 @@ export interface RefMetrics {
   agents_calibrated: number;
   recall_requests: number;
   calibrate_requests: number;
+  /** Refused challenge and register requests carrying this ref (a retry loop counts every try). */
+  registration_failed: number;
 }
 
 type Totals = Omit<RefMetrics, "ref">;
@@ -192,6 +233,21 @@ export interface TelemetryReport {
     register_to_calibrate: number | null;
   };
   by_ref: RefMetrics[];
+  failures: {
+    total: number;
+    by_code: Array<{ code: string; endpoint: string; events: number }>;
+  };
+  searches: {
+    total: number;
+    hits: number;
+    by_domain: Array<{ domain: string; searches: number; hits: number }>;
+  };
+  /** Opened audit links. Only links that carried a ref are counted, so this is a floor, not total traffic. */
+  audit_links: {
+    views: number;
+    found: number;
+    by_ref: Array<{ ref: string | null; views: number; found: number }>;
+  };
   truncated: boolean;
   notes: string[];
 }
@@ -201,12 +257,15 @@ export const REPORT_NOTES: readonly string[] = [
   "skill_view and challenge_issued are anonymous event counts. view_to_challenge and challenge_to_register are event ratios, not a cohort, and can fall outside 0..1.",
   "agents_recalled, agents_calibrated, recall_requests and calibrate_requests cover only agents whose agent_register fell inside the window, attributed to the ref sent on register. register_to_recall and register_to_calibrate divide by agent_register and are cohort rates. Activity by agents registered earlier is not counted.",
   "ref null means no ref was sent, or it was not a valid slug. An agent that read a document with a ref but registered without one is counted under null.",
+  "failures count every refused challenge or register request, so one client retrying in a loop adds many; by_code names the reason (for example CHALLENGE_WRONG_NETWORK or POW_INVALID). registration_failed on a ref row counts the refusals that carried that ref.",
+  "searches come from any unauthenticated client of the search route; the landing page is its documented caller, so they approximate human interest by domain. The question text is never recorded.",
+  "audit_links counts opened citation links (lesson pages) that carried a ref. A link without a ref is not recorded, so views is a lower bound.",
   "truncated is true when a query returned its row limit, so the figures are a lower bound.",
   "Analytics Engine retains three months of data.",
 ];
 
 function emptyMetrics(ref: string | null): RefMetrics {
-  return { ref, skill_view: 0, challenge_issued: 0, agent_register: 0, agents_recalled: 0, agents_calibrated: 0, recall_requests: 0, calibrate_requests: 0 };
+  return { ref, skill_view: 0, challenge_issued: 0, agent_register: 0, agents_recalled: 0, agents_calibrated: 0, recall_requests: 0, calibrate_requests: 0, registration_failed: 0 };
 }
 
 /** parseRef maps anything that is not a valid slug to "". null is the public name of "no usable ref". */
@@ -232,10 +291,13 @@ export interface ReportInput {
   funnel: readonly FunnelRow[];
   registrations: readonly RegistrationRow[];
   activity: readonly ActivityRow[];
+  failures: readonly FailureRow[];
+  searches: readonly SearchRow[];
+  lessonViews: readonly LessonViewRow[];
   nowMs: number;
 }
 
-/** Pure merge of the three query results. */
+/** Pure merge of the six query results. */
 export function buildReport(input: ReportInput): TelemetryReport {
   const refs = new Map<string, RefMetrics>();
   const entry = (ref: string | null): RefMetrics => {
@@ -275,6 +337,47 @@ export function buildReport(input: ReportInput): TelemetryReport {
     if (totals.calibrations > 0) metrics.agents_calibrated += 1;
   }
 
+  // Refused requests by response code, and per ref.
+  const byCode = new Map<string, { code: string; endpoint: string; events: number }>();
+  let failureTotal = 0;
+  for (const row of input.failures) {
+    entry(normaliseRef(row.ref_tag)).registration_failed += row.events;
+    failureTotal += row.events;
+    const key = `${row.code}\n${row.endpoint}`;
+    const current = byCode.get(key) ?? { code: row.code, endpoint: row.endpoint, events: 0 };
+    current.events += row.events;
+    byCode.set(key, current);
+  }
+
+  const domains = new Map<string, { domain: string; searches: number; hits: number }>();
+  let searchTotal = 0;
+  let searchHits = 0;
+  for (const row of input.searches) {
+    const current = domains.get(row.domain) ?? { domain: row.domain, searches: 0, hits: 0 };
+    current.searches += row.events;
+    searchTotal += row.events;
+    if (row.outcome === "hit") {
+      current.hits += row.events;
+      searchHits += row.events;
+    }
+    domains.set(row.domain, current);
+  }
+
+  const viewRefs = new Map<string, { ref: string | null; views: number; found: number }>();
+  let viewTotal = 0;
+  let viewFound = 0;
+  for (const row of input.lessonViews) {
+    const ref = normaliseRef(row.ref_tag);
+    const current = viewRefs.get(ref ?? "") ?? { ref, views: 0, found: 0 };
+    current.views += row.events;
+    viewTotal += row.events;
+    if (row.outcome === "hit") {
+      current.found += row.events;
+      viewFound += row.events;
+    }
+    viewRefs.set(ref ?? "", current);
+  }
+
   const byRef = [...refs.values()].sort(compareRefs);
   const totals: Totals = {
     skill_view: 0,
@@ -284,6 +387,7 @@ export function buildReport(input: ReportInput): TelemetryReport {
     agents_calibrated: 0,
     recall_requests: 0,
     calibrate_requests: 0,
+    registration_failed: 0,
   };
   for (const metrics of byRef) {
     totals.skill_view += metrics.skill_view;
@@ -293,6 +397,7 @@ export function buildReport(input: ReportInput): TelemetryReport {
     totals.agents_calibrated += metrics.agents_calibrated;
     totals.recall_requests += metrics.recall_requests;
     totals.calibrate_requests += metrics.calibrate_requests;
+    totals.registration_failed += metrics.registration_failed;
   }
 
   const limit = ANALYTICS_ROW_LIMIT;
@@ -312,17 +417,34 @@ export function buildReport(input: ReportInput): TelemetryReport {
       register_to_calibrate: ratio(totals.agents_calibrated, totals.agent_register),
     },
     by_ref: byRef,
-    truncated: input.funnel.length >= limit || input.registrations.length >= limit || input.activity.length >= limit,
+    failures: {
+      total: failureTotal,
+      by_code: [...byCode.values()].sort((a, b) => b.events - a.events || a.code.localeCompare(b.code) || a.endpoint.localeCompare(b.endpoint)),
+    },
+    searches: {
+      total: searchTotal,
+      hits: searchHits,
+      by_domain: [...domains.values()].sort((a, b) => b.searches - a.searches || a.domain.localeCompare(b.domain)),
+    },
+    audit_links: {
+      views: viewTotal,
+      found: viewFound,
+      by_ref: [...viewRefs.values()].sort((a, b) => b.views - a.views || (a.ref ?? "").localeCompare(b.ref ?? "")),
+    },
+    truncated: [input.funnel, input.registrations, input.activity, input.failures, input.searches, input.lessonViews].some((rows) => rows.length >= limit),
     notes: [...REPORT_NOTES],
   };
 }
 
-/** Runs the three queries in parallel and merges them. Throws AnalyticsQueryError. */
+/** Runs the six queries in parallel and merges them. Throws AnalyticsQueryError. */
 export async function loadTelemetryReport(config: AnalyticsConfig, window: TelemetryWindow, nowMs: number = Date.now()): Promise<TelemetryReport> {
-  const [funnel, registrations, activity] = await Promise.all([
+  const [funnel, registrations, activity, failures, searches, lessonViews] = await Promise.all([
     queryAnalyticsEngine(config, funnelSql(window), FunnelRow),
     queryAnalyticsEngine(config, registrationsSql(window), RegistrationRow),
     queryAnalyticsEngine(config, activitySql(window), ActivityRow),
+    queryAnalyticsEngine(config, failuresSql(window), FailureRow),
+    queryAnalyticsEngine(config, searchesSql(window), SearchRow),
+    queryAnalyticsEngine(config, lessonViewsSql(window), LessonViewRow),
   ]);
-  return buildReport({ window, funnel, registrations, activity, nowMs });
+  return buildReport({ window, funnel, registrations, activity, failures, searches, lessonViews, nowMs });
 }

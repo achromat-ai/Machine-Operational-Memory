@@ -11,8 +11,12 @@ import {
   describeFeedFailure,
   feedReducer,
   initialFeedState,
+  lessonPath,
   loadFeed,
+  loadLesson,
+  parseFeedLesson,
   parseFeedResponse,
+  parseLessonResponse,
   type FeedLessonView,
   type FeedState,
 } from "../ui/src/lib/feed";
@@ -135,6 +139,69 @@ describe("loadFeed", () => {
     const mine = lessons.find((lesson) => lesson.lessonId === approved.lessonId)!;
     expect(mine.compliantArguments).toEqual(FIX_ARGUMENTS);
     expect(mine.changedPaths).toContain("/approval/second_approver");
+  });
+});
+
+describe("parseLessonResponse", () => {
+  it("reads the single-lesson shape, the same lesson the feed list parser reads", () => {
+    expect(parseLessonResponse({ success: true, lesson: WIRE })).toEqual(VIEW);
+    expect(parseFeedLesson(WIRE)).toEqual(VIEW);
+  });
+
+  it("rejects anything else", () => {
+    const bad: unknown[] = [null, "text", [], { success: false, lesson: WIRE }, { success: true }, { success: true, lesson: null }, { success: true, lesson: { ...WIRE, featured: "yes" } }, { success: true, lessons: [WIRE] }];
+    for (const value of bad) expect(parseLessonResponse(value), JSON.stringify(value)).toBeNull();
+  });
+});
+
+describe("loadLesson", () => {
+  const ID = WIRE.lesson_id;
+
+  it("asks for the lesson path with a plain, credential-free GET, and adds the ref only when there is one", async () => {
+    const seen: string[] = [];
+    const fetcher = async (input: string, init?: RequestInit) => {
+      seen.push(input);
+      expect(init).toMatchObject({ method: "GET", credentials: "omit", redirect: "error" });
+      return new Response(JSON.stringify({ success: true, lesson: WIRE }), { status: 200 });
+    };
+    expect(await loadLesson(ID, "", fetcher)).toEqual(VIEW);
+    expect(await loadLesson(ID, "audit", fetcher)).toEqual(VIEW);
+    expect(seen).toEqual([lessonPath(ID), `${lessonPath(ID)}?ref=audit`]);
+    expect(lessonPath(ID)).toBe(`/api/v1/feed/${ID}`);
+  });
+
+  it("resolves to null when the service says the lesson is not public", async () => {
+    expect(await loadLesson(ID, "audit", reply(404, { success: false, code: "LESSON_NOT_FOUND" }))).toBeNull();
+  });
+
+  it("throws FeedError for any other failure or an unreadable answer", async () => {
+    await expect(loadLesson(ID, "", reply(429, { success: false }))).rejects.toMatchObject({ name: "FeedError", status: 429 });
+    await expect(loadLesson(ID, "", reply(503, "down"))).rejects.toMatchObject({ status: 503 });
+    await expect(loadLesson(ID, "", reply(200, "not json"))).rejects.toMatchObject({ status: 200 });
+    await expect(loadLesson(ID, "", reply(200, { success: true, lesson: {} }))).rejects.toMatchObject({ status: 200 });
+  });
+
+  it("reads the real Worker: a lesson by id, a lesson that is not public as null, and the visit is counted only with a ref", async () => {
+    const world = await freshWorld({ feedCacheSeconds: 0 });
+    const owner = await community();
+    const make = async () => {
+      const pair = await insertPair({ ownerKey: owner.key, kind: "community", trapArguments: TRAP_ARGUMENTS, fixArguments: FIX_ARGUMENTS });
+      await processLesson(env, world.deps, pair.lessonId);
+      return pair;
+    };
+    const approved = await make();
+    await humanReview(approved.lessonId, "approve");
+    const waiting = await make();
+
+    const ip = freshIp();
+    // As in the loadFeed case above: workerd refuses redirect: "error", so only method and headers are passed on.
+    const viaWorker = (input: string, init?: RequestInit) => call(input, { ...(init?.method ? { method: init.method } : {}), ...(init?.headers ? { headers: init.headers } : {}), ip });
+
+    const mine = await loadLesson(approved.lessonId, "", viaWorker);
+    expect(mine).toMatchObject({ lessonId: approved.lessonId, domain: "fintech", tool: "transfer_funds", compliantArguments: FIX_ARGUMENTS });
+    expect(mine!.changedPaths).toContain("/approval/second_approver");
+    expect(await loadLesson(waiting.lessonId, "audit", viaWorker)).toBeNull();
+    expect(await loadLesson(crypto.randomUUID(), "", viaWorker)).toBeNull();
   });
 });
 

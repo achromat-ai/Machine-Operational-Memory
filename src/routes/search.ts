@@ -11,6 +11,9 @@
  *
  * Each result has the public feed's shape: no receipts, no attestation, no values of the blocked call and no
  * submitter. The question itself is embedded and then dropped: it is not stored, logged or counted as demand.
+ * What is counted is the search itself: one human_search telemetry point with the validated domain (never the
+ * question) and hit or miss, written only for a search that ran. That is domain popularity; any unauthenticated
+ * client can call this route, and the landing page is its documented caller.
  */
 import { Hono, type Context } from "hono";
 import { bundleForDomain } from "../config/domains";
@@ -20,6 +23,7 @@ import type { AuthVariables } from "../middleware/auth";
 import { callerNetwork } from "../network";
 import { DomainSlug, SEARCH_LIMIT, SearchResponse, normaliseTaskDescription } from "../schema";
 import { embedOne } from "../search/embed";
+import { recordTelemetry } from "../telemetry";
 import { buildQueryText } from "../search/intent";
 import type { SearchFactory, VectorMatch } from "../search/vectors";
 import { PUBLIC_LESSON_SQL, presentPublicLesson, type FeedRow } from "./feed";
@@ -119,5 +123,14 @@ async function handleSearch(c: Context<SearchEnv>, options: SearchOptions) {
     .filter((match) => rows.has(match.id))
     .sort((a, b) => b.score - a.score)
     .map((match) => ({ score: match.score, lesson: presentPublicLesson(rows.get(match.id)!) }));
+  // After the D1 re-check, so a stale vector of a withdrawn lesson does not make a "hit".
+  recordTelemetry(c, {
+    action: "human_search",
+    domain,
+    tool: "",
+    agentKey: null,
+    status: results.length > 0 ? "hit" : "miss",
+    index: "human_search",
+  });
   return c.json(SearchResponse.parse({ success: true, results }));
 }

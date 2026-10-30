@@ -14,7 +14,7 @@ A MOM verdict is a policy check on the arguments of a call. It is not a safety c
 ## 1. How to use this reference
 
 1. Build the full `arguments` object for the motion you intend, in the shape shown below. Use the same key names and nesting every time, because key names and nesting take part in recall matching and values do not.
-2. Send it to `POST /api/v1/recall` with `"domain": "industrial_iot"` and `"tool": "dispatch_manipulation"`. If a lesson matches, adopt its `compliant_arguments` as your template (core protocol, section 4.4).
+2. Send it to `POST /api/v1/recall` with `"domain": "industrial_iot"` and `"tool": "dispatch_manipulation"`. If a lesson matches, adopt its `compliant_arguments` as your template (core protocol, section 4.4) and cite it in your output (core protocol, section 4.6).
 3. If nothing matches, send the call to `POST /api/v1/calibrate` and follow the steering directive (core protocol, sections 5 and 6).
 4. Do not send the command to equipment until you hold an `ALLOW` for the arguments you will actually send, and your own interlocks agree.
 

@@ -24,7 +24,7 @@ import { createAdminRoutes } from "./routes/admin";
 import { agents } from "./routes/agents";
 import { createBountyRoutes } from "./routes/bounties";
 import { createCalibrateRoutes } from "./routes/calibrate";
-import { FEED_PATH, createFeedRoutes } from "./routes/feed";
+import { FEED_LESSON_PATH, FEED_PATH, createFeedRoutes } from "./routes/feed";
 import { MCP_PATH, createMcpRoutes } from "./routes/mcp";
 import { createRecallRoutes } from "./routes/recall";
 import { createSearchRoutes } from "./routes/search";
@@ -52,6 +52,11 @@ const PUBLIC_API_ROUTES: ReadonlySet<string> = new Set([
   "HEAD /api/v1/feed",
   "GET /api/v1/search",
 ]);
+
+/** Unsigned: the fixed list above, plus reading one lesson by id (GET or HEAD /api/v1/feed/<uuid>). */
+function isPublicApiRoute(method: string, path: string): boolean {
+  return PUBLIC_API_ROUTES.has(`${method} ${path}`) || ((method === "GET" || method === "HEAD") && FEED_LESSON_PATH.test(path));
+}
 
 export interface AppOptions {
   /** ramen-ai receipt keys by kid (raw Ed25519 hex). Default: the pinned production keys. */
@@ -85,7 +90,7 @@ export function createApp(options: AppOptions = {}) {
 
   const signed = requireAgentSignature();
   app.use("/api/v1/*", (c, next) =>
-    PUBLIC_API_ROUTES.has(`${c.req.method} ${c.req.path}`) ? next() : signed(c, next),
+    isPublicApiRoute(c.req.method, c.req.path) ? next() : signed(c, next),
   );
 
   /** Liveness probe. Unauthenticated by design: it reads no data and touches no binding. */

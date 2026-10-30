@@ -10,7 +10,7 @@ import { ChevronIcon } from "./icons";
 const rowDetailId = (lessonId: string) => `lesson-detail-${lessonId}`;
 const cardDetailId = (lessonId: string) => `lesson-card-detail-${lessonId}`;
 
-function DomainPill({ domain }: { domain: string }) {
+export function DomainPill({ domain }: { domain: string }) {
   return <span className="inline-block rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-slate-800">{domainLabel(domain)}</span>;
 }
 
@@ -18,7 +18,7 @@ function FeaturedBadge() {
   return <span className="inline-block rounded bg-compliant/15 px-2 py-0.5 text-xs font-semibold text-compliant">Featured</span>;
 }
 
-function ToolChip({ tool }: { tool: string }) {
+export function ToolChip({ tool }: { tool: string }) {
   return (
     <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs break-words text-slate-900">
       {toolSegments(tool).map((segment, index) => (
@@ -62,7 +62,7 @@ function FixCell({ lesson }: { lesson: FeedLessonView }) {
 }
 
 /** Everything that would clutter the row: the whole directive, the anchor, and the exact parameter changes. */
-function LessonDetail({ lesson }: { lesson: FeedLessonView }) {
+export function LessonDetail({ lesson }: { lesson: FeedLessonView }) {
   const { lead, more } = splitSteering(lesson.steeringDirective);
   const { visible, unchanged } = splitRows(buildDeltaRows(null, lesson.compliantArguments, lesson.changedPaths));
   const blueprint = JSON.stringify(lesson.compliantArguments, null, 2);
@@ -134,6 +134,12 @@ function ToggleButton({ lesson, open, onToggle, controls, withText }: { lesson: 
   );
 }
 
+/** Scrolls to whichever form of a lesson (table row or card) is on screen. */
+function scrollToLesson(id: string): void {
+  const target = [rowAnchor(id), cardAnchor(id)].map((anchor) => document.getElementById(anchor)).find((element) => element !== null && element.offsetParent !== null);
+  target?.scrollIntoView({ block: "start" });
+}
+
 export interface FeedTableProps {
   lessons: readonly FeedLessonView[];
   /** Id of the element that names this list. */
@@ -163,12 +169,26 @@ export default function FeedTable({ lessons, labelledBy }: FeedTableProps) {
   useEffect(() => {
     const id = lessonIdFromHash(window.location.hash);
     if (id === null) return;
-    const frame = window.requestAnimationFrame(() => {
-      const target = [rowAnchor(id), cardAnchor(id)].map((anchor) => document.getElementById(anchor)).find((element) => element !== null && element.offsetParent !== null);
-      target?.scrollIntoView({ block: "start" });
-    });
+    const frame = window.requestAnimationFrame(() => scrollToLesson(id));
     return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  // A second link followed in the same tab changes only the fragment: open that lesson and bring it into view too.
+  useEffect(() => {
+    let frame = 0;
+    const onHashChange = () => {
+      const id = lessonIdFromHash(window.location.hash);
+      if (id === null || !lessons.some((lesson) => lesson.lessonId === id)) return;
+      setOpen((current) => new Set(current).add(id));
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => scrollToLesson(id));
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [lessons]);
 
   return (
     <>

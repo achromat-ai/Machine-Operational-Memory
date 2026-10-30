@@ -130,11 +130,13 @@ describe("telemetry: onboarding (challenge_issued, agent_register)", () => {
     }
   });
 
-  it("logs nothing for a challenge that was not issued", async () => {
+  it("logs no challenge_issued for a challenge that was not issued, only the refusal", async () => {
     const world = await freshWorld();
     const response = await world.worker.fetch(new Request(`${ORIGIN}/api/v1/agents/challenge?ref=x`), world.env, createExecutionContext());
     expect(response.status).toBe(400); // no client address
-    expect(world.analytics.points).toHaveLength(0);
+    expect(world.analytics.points).toEqual([
+      { indexes: ["registration_failed"], blobs: ["registration_failed", "", "challenge", "anonymous", "CLIENT_IP_UNAVAILABLE", "x", ""], doubles: [1] },
+    ]);
   });
 
   it("logs a registration with the new key's anonymised id, which is the id its later calls carry", async () => {
@@ -169,7 +171,7 @@ describe("telemetry: onboarding (challenge_issued, agent_register)", () => {
     expect(world.analytics.points[0]!.blobs?.at(-1)).toBe("");
   });
 
-  it("logs nothing for a registration that fails, and does not accept the ref in the body", async () => {
+  it("logs no agent_register for a registration that fails, only the refusal, and does not accept the ref in the body", async () => {
     const world = await freshWorld();
     const ip = freshIp();
     const agent = await newAgent();
@@ -183,7 +185,12 @@ describe("telemetry: onboarding (challenge_issued, agent_register)", () => {
 
     const bad = await viaWorld(world, "/api/v1/agents/register?ref=x", { ip, method: "POST", body: { ...body, proof_signature: body.nonce.padEnd(86, "A") } });
     expect(bad.status).toBeGreaterThanOrEqual(400);
-    expect(world.analytics.points).toHaveLength(0);
+    // Two refusals, no registration: the field-level detail names the one field that failed validation.
+    expect(world.analytics.points.map((point) => point.blobs)).toEqual([
+      ["registration_failed", "", "register", "anonymous", "INVALID_REQUEST", "x", "unknown_field"],
+      ["registration_failed", "", "register", "anonymous", expect.stringMatching(/^(POW_INVALID|PROOF_OF_POSSESSION_FAILED)$/), "x", ""],
+    ]);
+    expect(world.analytics.points.some((point) => point.blobs?.[0] === "agent_register")).toBe(false);
   });
 
   it("registers and issues challenges normally when the dataset is unavailable", async () => {

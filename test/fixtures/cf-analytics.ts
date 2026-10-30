@@ -11,12 +11,15 @@ export const TEST_ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 export const TEST_ANALYTICS_TOKEN = "test-only-analytics-api-token";
 export const ANALYTICS_URL = `https://api.cloudflare.com/client/v4/accounts/${TEST_ACCOUNT_ID}/analytics_engine/sql`;
 
-export type CfQueryName = "funnel" | "registrations" | "activity";
+export type CfQueryName = "funnel" | "registrations" | "activity" | "failures" | "searches" | "lessonViews";
 
 export interface CfRows {
   funnel?: unknown[];
   registrations?: unknown[];
   activity?: unknown[];
+  failures?: unknown[];
+  searches?: unknown[];
+  lessonViews?: unknown[];
 }
 
 /** How one query is answered instead of the canned rows. */
@@ -39,6 +42,9 @@ export interface RecordedCfRequest {
 }
 
 export function classify(sql: string): CfQueryName {
+  if (sql.includes("'registration_failed'")) return "failures";
+  if (sql.includes("'human_search'")) return "searches";
+  if (sql.includes("'lesson_view'")) return "lessonViews";
   if (sql.includes("'recall'")) return "activity";
   if (sql.includes("'skill_view'")) return "funnel";
   return "registrations";

@@ -1,10 +1,12 @@
 import { useEffect, useId, useState } from "react";
 import FeedList from "./FeedList";
 import Hero from "./Hero";
+import LinkedLesson from "./LinkedLesson";
 import ResultList from "./ResultList";
 import SearchInput from "./SearchInput";
 import SimpleSearch from "./SimpleSearch";
 import { useFeed } from "./useFeed";
+import { useLinkedLesson } from "./useLinkedLesson";
 import { useRecall } from "./useRecall";
 import { useSearch } from "./useSearch";
 
@@ -12,13 +14,16 @@ const TOGGLE =
   "inline-flex min-h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50 focus:outline-2 focus:outline-offset-2 focus:outline-slate-900";
 
 /**
- * The landing page: the hero, a plain-language search, then the directory of approved lessons. None of these needs an
+ * The landing page: the hero, a plain-language search, the lesson a #lesson-<id> link names (fetched by id, so any approved lesson can be linked), then the directory of approved lessons. None of these needs an
  * identity. The structured, signed lookup by tool name and arguments sits in a collapsed "Advanced Agent Simulator"
  * panel. The panel is always mounted and only hidden, so what was typed survives a collapse, and it opens by itself
  * when an advanced search runs.
  */
 export default function PublicPage() {
   const feed = useFeed();
+  const linked = useLinkedLesson();
+  const linkedId = linked.phase === "none" ? null : linked.id;
+  const inFeed = linkedId !== null && feed.state.lessons.some((lesson) => lesson.lessonId === linkedId);
   const { state: simple, search: runSimple } = useSearch();
   const { state: recall, search: runRecall } = useRecall();
   const [simulatorOpen, setSimulatorOpen] = useState(false);
@@ -60,6 +65,8 @@ export default function PublicPage() {
             </div>
           </div>
         </section>
+
+        <LinkedLesson state={linked} inFeed={inFeed} />
 
         <FeedList state={feed.state} onRefresh={feed.refresh} />
 

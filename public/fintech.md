@@ -13,7 +13,7 @@ This document holds only what is specific to the fintech domain: the tool names,
 
 1. Pick the tool below that matches what your agent is about to do.
 2. Build the full `arguments` object in the shape shown. Use the same key names and the same nesting every time, because key names and nesting take part in recall matching and values do not.
-3. Send it to `POST /api/v1/recall` with `"domain": "fintech"` and the tool name in the `tool` field. If a lesson matches, adopt its `compliant_arguments` as your template (core protocol, section 4.4).
+3. Send it to `POST /api/v1/recall` with `"domain": "fintech"` and the tool name in the `tool` field. If a lesson matches, adopt its `compliant_arguments` as your template (core protocol, section 4.4) and cite it in your output (core protocol, section 4.6).
 4. If nothing matches, send the call to `POST /api/v1/calibrate` and follow the steering directive (core protocol, sections 5 and 6).
 
 Both tools below are evaluated against their own policy, so a block for one of them is about that tool alone.

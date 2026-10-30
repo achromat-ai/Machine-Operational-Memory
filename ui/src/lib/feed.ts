@@ -9,6 +9,7 @@
  * sends it, but the public page shows no dates, so it is neither required nor kept.
  */
 import type { JsonObject } from "./delta";
+import { withRef } from "./ref";
 
 export const FEED_PATH = "/api/v1/feed";
 /** The server caches the feed for 30 seconds, so asking more often only returns the same answer. */
@@ -36,45 +37,58 @@ function nullableString(value: unknown): string | null | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/** Reads one lesson as the feed and the single-lesson route send it. Null if it is not the documented shape. */
+export function parseFeedLesson(item: unknown): FeedLessonView | null {
+  if (!isPlainObject(item)) return null;
+  const steering = nullableString(item.steering_directive);
+  const anchor = nullableString(item.statutory_anchor);
+  const title = nullableString(item.display_title);
+  const summary = nullableString(item.display_summary);
+  if (
+    typeof item.lesson_id !== "string" ||
+    typeof item.domain !== "string" ||
+    typeof item.tool !== "string" ||
+    steering === undefined ||
+    anchor === undefined ||
+    title === undefined ||
+    summary === undefined ||
+    !isPlainObject(item.compliant_arguments) ||
+    !Array.isArray(item.changed_paths) ||
+    !item.changed_paths.every((path) => typeof path === "string") ||
+    typeof item.featured !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    lessonId: item.lesson_id,
+    domain: item.domain,
+    tool: item.tool,
+    steeringDirective: steering,
+    statutoryAnchor: anchor,
+    compliantArguments: item.compliant_arguments,
+    changedPaths: item.changed_paths as string[],
+    displayTitle: title,
+    displaySummary: summary,
+    featured: item.featured,
+  };
+}
+
 /** Reads a 200 body. Returns null if it is not the documented shape (one bad lesson rejects the whole answer). */
 export function parseFeedResponse(body: unknown): FeedLessonView[] | null {
   if (!isPlainObject(body) || body.success !== true || !Array.isArray(body.lessons)) return null;
   const lessons: FeedLessonView[] = [];
   for (const item of body.lessons) {
-    if (!isPlainObject(item)) return null;
-    const steering = nullableString(item.steering_directive);
-    const anchor = nullableString(item.statutory_anchor);
-    const title = nullableString(item.display_title);
-    const summary = nullableString(item.display_summary);
-    if (
-      typeof item.lesson_id !== "string" ||
-      typeof item.domain !== "string" ||
-      typeof item.tool !== "string" ||
-      steering === undefined ||
-      anchor === undefined ||
-      title === undefined ||
-      summary === undefined ||
-      !isPlainObject(item.compliant_arguments) ||
-      !Array.isArray(item.changed_paths) ||
-      !item.changed_paths.every((path) => typeof path === "string") ||
-      typeof item.featured !== "boolean"
-    ) {
-      return null;
-    }
-    lessons.push({
-      lessonId: item.lesson_id,
-      domain: item.domain,
-      tool: item.tool,
-      steeringDirective: steering,
-      statutoryAnchor: anchor,
-      compliantArguments: item.compliant_arguments,
-      changedPaths: item.changed_paths as string[],
-      displayTitle: title,
-      displaySummary: summary,
-      featured: item.featured,
-    });
+    const lesson = parseFeedLesson(item);
+    if (lesson === null) return null;
+    lessons.push(lesson);
   }
   return lessons;
+}
+
+/** Reads the 200 body of GET /api/v1/feed/<lesson_id>. Null if it is not the documented shape. */
+export function parseLessonResponse(body: unknown): FeedLessonView | null {
+  if (!isPlainObject(body) || body.success !== true) return null;
+  return parseFeedLesson(body.lesson);
 }
 
 export class FeedError extends Error {
@@ -112,6 +126,49 @@ export async function loadFeed(fetcher: Fetcher = (input, init) => fetch(input, 
   if (lessons === null) throw new FeedError(200, "The service sent an unexpected answer.");
   return lessons;
 }
+
+/** The path of one lesson. `id` must already be a UUID (lessonIdFromHash guarantees it). */
+export const lessonPath = (id: string) => `${FEED_PATH}/${id}`;
+
+/**
+ * GET /api/v1/feed/<lesson_id>[?ref=]: one approved, public lesson, whether or not it is among the newest in the
+ * feed. Resolves to null when the service says the lesson is not public (404): unknown, withdrawn, or not yet
+ * approved. Any other failure throws FeedError. A ref is forwarded so the service can attribute the visit.
+ */
+export async function loadLesson(
+  id: string,
+  ref: string,
+  fetcher: Fetcher = (input, init) => fetch(input, init),
+  signal?: AbortSignal,
+): Promise<FeedLessonView | null> {
+  const init: Record<string, unknown> = {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    credentials: "omit",
+    redirect: "error",
+    ...(signal ? { signal } : {}),
+  };
+  const response = await fetcher(withRef(lessonPath(id), ref), init as RequestInit);
+  if (response.status === 404) return null;
+  if (response.status !== 200) throw new FeedError(response.status, `Request failed (${response.status})`);
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  const lesson = parseLessonResponse(body);
+  if (lesson === null) throw new FeedError(200, "The service sent an unexpected answer.");
+  return lesson;
+}
+
+/** The lesson a `#lesson-<id>` link names, as the page sees it. */
+export type LinkedLessonState =
+  | { phase: "none" }
+  | { phase: "loading"; id: string }
+  | { phase: "ready"; id: string; lesson: FeedLessonView }
+  | { phase: "missing"; id: string }
+  | { phase: "error"; id: string };
 
 /** What to tell the visitor about a failed load. Never includes codes, keys or stack traces. */
 export function describeFeedFailure(error: unknown): string {

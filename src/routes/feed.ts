@@ -13,15 +13,25 @@
  *
  * This is the one /api route that may be cached: it sets `Cache-Control: public, max-age=30`, and the global
  * no-store middleware in app.ts leaves a 200 on this exact path alone.
+ *
+ * GET /api/v1/feed/<lesson_id> (public, unsigned) serves one lesson by id, so a citation link to any approved
+ * lesson stays valid however far down the feed it has moved. Only a lesson that is approved AND public is served;
+ * every other id (unknown, pending, rejected, quarantined, retracted) gets the same 404, so the route cannot be
+ * used to learn whether a private lesson exists. It is never cached, so a withdrawal takes effect at once. When
+ * the request carries a valid `?ref=` it writes one lesson_view telemetry point (hit or miss) for audit-link
+ * attribution; without a ref it writes nothing.
  */
 import { Hono, type Context } from "hono";
 import type { Env } from "../env";
 import { apiError } from "../http";
 import type { AuthVariables } from "../middleware/auth";
 import { callerNetwork } from "../network";
-import { FEED_LIMIT, FeedResponse } from "../schema";
+import { FEED_LIMIT, FeedLessonResponse, FeedResponse, MomUuid } from "../schema";
+import { recordTelemetry, refFromUrl } from "../telemetry";
 
 export const FEED_PATH = "/api/v1/feed";
+/** A single-lesson path under the feed. app.ts lets exactly this shape through unsigned. */
+export const FEED_LESSON_PATH = /^\/api\/v1\/feed\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const FEED_CACHE_SECONDS = 30;
 export const FEED_CACHE_CONTROL = `public, max-age=${FEED_CACHE_SECONDS}`;
 /**
@@ -141,6 +151,45 @@ export function createFeedRoutes(options: FeedOptions = {}) {
       }
     }
     return json(c, body);
+  });
+
+  feed.get("/:lessonId", async (c) => {
+    let network;
+    try {
+      network = await callerNetwork(c.req.raw, c.env.IP_HMAC_KEY);
+    } catch (error) {
+      console.error("achromat-mom feed misconfigured", error instanceof Error ? error.message : error);
+      return apiError(c, 503, "SERVICE_MISCONFIGURED", "the feed is temporarily unavailable");
+    }
+    if (network === null) return apiError(c, 400, "CLIENT_IP_UNAVAILABLE", "caller IP address could not be determined");
+
+    const { success } = await c.env.FEED_LIMITER.limit({ key: `feed:${network.prefixHmac}` });
+    if (!success) {
+      c.header("Retry-After", "60");
+      return apiError(c, 429, "RATE_LIMITED", "too many feed requests from this network; retry in a minute");
+    }
+
+    const lessonId = c.req.param("lessonId").toLowerCase();
+    const ref = refFromUrl(c.req.url);
+    const row = MomUuid.safeParse(lessonId).success
+      ? await c.env.DB.prepare(`${PUBLIC_LESSON_SQL} AND l.lesson_id = ?1`).bind(lessonId).first<FeedRow>()
+      : null;
+
+    if (ref !== "") {
+      // lessonId matched the strict UUID pattern above, or is not written at all; the ref is a validated slug.
+      recordTelemetry(c, {
+        action: "lesson_view",
+        domain: row?.domain ?? "",
+        tool: row?.tool_name ?? "",
+        agentKey: null,
+        status: row === null ? "miss" : "hit",
+        ref,
+        detail: MomUuid.safeParse(lessonId).success ? lessonId : "",
+        index: "lesson_view",
+      });
+    }
+    if (row === null) return apiError(c, 404, "LESSON_NOT_FOUND", "lesson is not public");
+    return c.json(FeedLessonResponse.parse({ success: true, lesson: presentPublicLesson(row) }));
   });
 
   return feed;

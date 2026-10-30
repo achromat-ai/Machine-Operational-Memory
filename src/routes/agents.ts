@@ -14,14 +14,19 @@
  * The D1 triggers in 0001_event_ledger.sql re-check single use, expiry, the
  * network binding and the digest difficulty, so a bug here cannot mint a key
  * the ledger would reject.
+ *
+ * Every refusal goes through reject(), which writes one registration_failed telemetry point carrying the
+ * response code (from a closed list, src/telemetry.ts) and nothing from the request, then returns exactly the
+ * response it always did.
  */
 import { Hono, type Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { powChallengeKeyConfigured, signChallenge, verifyChallengeSignature } from "../crypto/pow-challenge";
 import type { Env } from "../env";
-import { apiError, parseJsonBytes, readBodyBytes } from "../http";
+import { apiError, parseJsonBytes, readBodyBytes, type ErrorDetail } from "../http";
 import type { AuthVariables } from "../middleware/auth";
 import { callerNetwork } from "../network";
-import { recordTelemetry, refFromUrl } from "../telemetry";
+import { recordTelemetry, refFromUrl, registrationFieldLabel, type RegistrationFailureCode } from "../telemetry";
 import {
   AgentRegistration,
   POW_ALGORITHM,
@@ -61,9 +66,36 @@ function difficultyBits(env: Env): number {
   return Number.isInteger(bits) && bits >= 16 && bits <= 40 ? bits : DEFAULT_DIFFICULTY_BITS;
 }
 
-function misconfigured(c: Context<AgentsEnv>) {
+type Step = "challenge" | "register";
+/** The `code` a refused request answers with. REGISTRATION_LIMIT has two telemetry labels, see reject(). */
+type ResponseCode = Exclude<RegistrationFailureCode, "REGISTRATION_LIMIT_PREFIX" | "REGISTRATION_LIMIT_ASN" | "OTHER"> | "REGISTRATION_LIMIT";
+
+interface RejectOptions {
+  details?: readonly ErrorDetail[];
+  /** The telemetry label, when it is finer than the response code (the two registration caps). */
+  label?: RegistrationFailureCode;
+  /** The offending request field, already reduced to a fixed list by registrationFieldLabel. */
+  field?: string;
+}
+
+/** Records the refusal (best effort, off the response path) and returns the same JSON error as before. */
+function reject(c: Context<AgentsEnv>, step: Step, status: ContentfulStatusCode, code: ResponseCode, message: string, options: RejectOptions = {}) {
+  recordTelemetry(c, {
+    action: "registration_failed",
+    domain: "",
+    tool: step,
+    agentKey: null,
+    status: options.label ?? (code === "REGISTRATION_LIMIT" ? "OTHER" : code),
+    ref: refFromUrl(c.req.url),
+    detail: options.field ?? "",
+    index: "registration_failed",
+  });
+  return apiError(c, status, code, message, options.details);
+}
+
+function misconfigured(c: Context<AgentsEnv>, step: Step) {
   console.error("achromat-mom onboarding misconfigured: POW_CHALLENGE_HMAC_KEY is missing or too short");
-  return apiError(c, 503, "SERVICE_MISCONFIGURED", "registration is temporarily unavailable");
+  return reject(c, step, 503, "SERVICE_MISCONFIGURED", "registration is temporarily unavailable");
 }
 
 async function rateLimited(c: Context<AgentsEnv>, scope: string, prefixHmac: string): Promise<boolean> {
@@ -73,12 +105,12 @@ async function rateLimited(c: Context<AgentsEnv>, scope: string, prefixHmac: str
 
 agents.get("/challenge", async (c) => {
   const network = await callerNetworkOf(c);
-  if (network === null) return apiError(c, 400, "CLIENT_IP_UNAVAILABLE", "caller IP address could not be determined");
+  if (network === null) return reject(c, "challenge", 400, "CLIENT_IP_UNAVAILABLE", "caller IP address could not be determined");
   if (await rateLimited(c, "challenge", network.prefixHmac)) {
-    return apiError(c, 429, "RATE_LIMITED", "too many challenge requests from this network; retry in a minute");
+    return reject(c, "challenge", 429, "RATE_LIMITED", "too many challenge requests from this network; retry in a minute");
   }
 
-  if (!powChallengeKeyConfigured(c.env.POW_CHALLENGE_HMAC_KEY)) return misconfigured(c);
+  if (!powChallengeKeyConfigured(c.env.POW_CHALLENGE_HMAC_KEY)) return misconfigured(c, "challenge");
 
   const challengeId = crypto.randomUUID();
   const challenge = encodeBase64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -141,7 +173,9 @@ interface RegistrationCounts {
 }
 
 /** Maps a D1 trigger abort (the database backstop) to the same errors the route returns itself. */
-function triggerConflict(error: unknown): { status: 400 | 409; code: string; message: string } | null {
+function triggerConflict(
+  error: unknown,
+): { status: 400 | 409; code: "CHALLENGE_USED" | "CHALLENGE_EXPIRED" | "CHALLENGE_WRONG_NETWORK" | "POW_INVALID"; message: string } | null {
   const text = error instanceof Error ? error.message : String(error);
   if (text.includes("already registered") || text.includes("UNIQUE constraint failed")) {
     return { status: 409, code: "CHALLENGE_USED", message: "challenge has already been redeemed or the key is registered" };
@@ -160,20 +194,25 @@ function triggerConflict(error: unknown): { status: 400 | 409; code: string; mes
 
 agents.post("/register", async (c) => {
   const network = await callerNetworkOf(c);
-  if (network === null) return apiError(c, 400, "CLIENT_IP_UNAVAILABLE", "caller IP address could not be determined");
+  if (network === null) return reject(c, "register", 400, "CLIENT_IP_UNAVAILABLE", "caller IP address could not be determined");
   if (await rateLimited(c, "register", network.prefixHmac)) {
-    return apiError(c, 429, "RATE_LIMITED", "too many registration attempts from this network; retry in a minute");
+    return reject(c, "register", 429, "RATE_LIMITED", "too many registration attempts from this network; retry in a minute");
   }
 
   const bytes = await readBodyBytes(c.req.raw, REGISTER_MAX_BODY_BYTES);
-  if (bytes === null) return apiError(c, 413, "BODY_TOO_LARGE", `request body must be at most ${REGISTER_MAX_BODY_BYTES} bytes`);
+  if (bytes === null) return reject(c, "register", 413, "BODY_TOO_LARGE", `request body must be at most ${REGISTER_MAX_BODY_BYTES} bytes`);
   const parsed = AgentRegistration.safeParse(parseJsonBytes(bytes));
   if (!parsed.success) {
     const failure = toValidationFailure(parsed.error);
-    return apiError(c, 400, failure.code, "registration body is invalid", failure.details);
+    // The first offending field, reduced to the register body's own five names: a strict schema reports an
+    // unknown key by the caller's text, which must not be written.
+    return reject(c, "register", 400, failure.code, "registration body is invalid", {
+      details: failure.details,
+      field: registrationFieldLabel(failure.details[0]?.path),
+    });
   }
   const body = parsed.data;
-  if (!powChallengeKeyConfigured(c.env.POW_CHALLENGE_HMAC_KEY)) return misconfigured(c);
+  if (!powChallengeKeyConfigured(c.env.POW_CHALLENGE_HMAC_KEY)) return misconfigured(c, "register");
   const agentKey = toHex(decodeBase64url(body.public_key));
 
   const challenge = await c.env.DB.prepare(
@@ -181,7 +220,7 @@ agents.post("/register", async (c) => {
   )
     .bind(body.challenge_id)
     .first<ChallengeRow>();
-  if (challenge === null) return apiError(c, 400, "CHALLENGE_INVALID", "challenge_id is unknown");
+  if (challenge === null) return reject(c, "register", 400, "CHALLENGE_INVALID", "challenge_id is unknown");
   // Authenticity first: the stored challenge must carry a valid HMAC from this Worker. Nothing below
   // (expiry, network, hashing, signature checks) runs for a challenge that fails it.
   const signed = await verifyChallengeSignature(
@@ -196,17 +235,17 @@ agents.post("/register", async (c) => {
     },
     body.challenge_signature,
   );
-  if (!signed) return apiError(c, 400, "INVALID_CHALLENGE", "challenge signature does not verify; request a new challenge");
+  if (!signed) return reject(c, "register", 400, "INVALID_CHALLENGE", "challenge signature does not verify; request a new challenge");
   if (Date.now() >= challenge.expires_at_ms) {
-    return apiError(c, 400, "CHALLENGE_EXPIRED", "challenge has expired; request a new one");
+    return reject(c, "register", 400, "CHALLENGE_EXPIRED", "challenge has expired; request a new one");
   }
   if (challenge.ip_prefix_hmac !== network.prefixHmac) {
-    return apiError(c, 400, "CHALLENGE_WRONG_NETWORK", "challenge was issued to a different network");
+    return reject(c, "register", 400, "CHALLENGE_WRONG_NETWORK", "challenge was issued to a different network");
   }
 
   const powHash = await sha256Hex(powPreimage(challenge.challenge, body.public_key, body.nonce));
   if (leadingZeroBits(powHash) < challenge.difficulty_bits) {
-    return apiError(c, 400, "POW_INVALID", "proof of work does not meet the challenge difficulty");
+    return reject(c, "register", 400, "POW_INVALID", "proof of work does not meet the challenge difficulty");
   }
   const possession = await verifyEd25519(
     body.public_key,
@@ -214,7 +253,7 @@ agents.post("/register", async (c) => {
     registrationSigningString(challenge.challenge, body.public_key),
   );
   if (!possession) {
-    return apiError(c, 401, "PROOF_OF_POSSESSION_FAILED", "proof_signature does not verify for public_key");
+    return reject(c, "register", 401, "PROOF_OF_POSSESSION_FAILED", "proof_signature does not verify for public_key");
   }
 
   const since = Date.now() - DAY_MS;
@@ -227,13 +266,13 @@ agents.post("/register", async (c) => {
   )
     .bind(body.challenge_id, agentKey, network.prefixHmac, since, network.asn)
     .first<RegistrationCounts>())!;
-  if (counts.challenge_used > 0) return apiError(c, 409, "CHALLENGE_USED", "challenge has already been redeemed");
-  if (counts.key_exists > 0) return apiError(c, 409, "AGENT_KEY_EXISTS", "public_key is already registered");
+  if (counts.challenge_used > 0) return reject(c, "register", 409, "CHALLENGE_USED", "challenge has already been redeemed");
+  if (counts.key_exists > 0) return reject(c, "register", 409, "AGENT_KEY_EXISTS", "public_key is already registered");
   if (counts.prefix_count >= REGISTRATIONS_PER_PREFIX_PER_DAY) {
-    return apiError(c, 429, "REGISTRATION_LIMIT", "registration limit reached for this network; try again tomorrow");
+    return reject(c, "register", 429, "REGISTRATION_LIMIT", "registration limit reached for this network; try again tomorrow", { label: "REGISTRATION_LIMIT_PREFIX" });
   }
   if (network.asn !== null && counts.asn_count >= REGISTRATIONS_PER_ASN_PER_DAY) {
-    return apiError(c, 429, "REGISTRATION_LIMIT", "registration limit reached for this network; try again tomorrow");
+    return reject(c, "register", 429, "REGISTRATION_LIMIT", "registration limit reached for this network; try again tomorrow", { label: "REGISTRATION_LIMIT_ASN" });
   }
 
   const registeredAt = Date.now();
@@ -247,7 +286,7 @@ agents.post("/register", async (c) => {
       .run();
   } catch (error) {
     const conflict = triggerConflict(error);
-    if (conflict) return apiError(c, conflict.status, conflict.code, conflict.message);
+    if (conflict) return reject(c, "register", conflict.status, conflict.code, conflict.message);
     throw error;
   }
 

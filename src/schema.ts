@@ -596,6 +596,13 @@ export const SearchResponse = z.strictObject({
 });
 export type SearchResponse = z.output<typeof SearchResponse>;
 
+/** GET /api/v1/feed/<lesson_id>: one approved, public lesson, in the feed's shape. */
+export const FeedLessonResponse = z.strictObject({
+  success: z.literal(true),
+  lesson: FeedLesson,
+});
+export type FeedLessonResponse = z.output<typeof FeedLessonResponse>;
+
 export const FeedResponse = z.strictObject({
   success: z.literal(true),
   lessons: z.array(FeedLesson).max(FEED_LIMIT),

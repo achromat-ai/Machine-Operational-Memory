@@ -4,6 +4,7 @@
  * reconcile publishes them to the fake index, exactly as in the recall tests.
  */
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { SEARCH_LIMIT, SearchResponse } from "../src/schema";
 import { SEARCH_MIN_SCORE, SEARCH_QUERY_MAX_CHARACTERS } from "../src/routes/search";
@@ -143,11 +144,48 @@ describe("GET /api/v1/search: results", () => {
     }
   });
 
-  it("does not store the question: no demand row, no telemetry point", async () => {
+  it("counts the search by domain and never the question: one human_search point, no demand row", async () => {
     const world = await freshWorld();
-    const before = world.analytics.points.length;
-    await get(world, { domain: "fintech", q: "a question nobody has an answer to yet" });
-    expect(world.analytics.points).toHaveLength(before);
+    const question = "a question nobody has an answer to yet";
+    world.analytics.points.length = 0;
+    const demandBefore = (await env.DB.prepare("SELECT count(*) AS n FROM domain_demand").first<{ n: number }>())!.n;
+
+    expect((await get(world, { domain: "fintech", q: question })).status).toBe(200);
+    expect(world.analytics.points).toEqual([{ indexes: ["human_search"], blobs: ["human_search", "fintech", "", "anonymous", "miss"], doubles: [1] }]);
+    expect(JSON.stringify(world.analytics.points)).not.toContain("nobody");
+    expect((await env.DB.prepare("SELECT count(*) AS n FROM domain_demand").first<{ n: number }>())!.n).toBe(demandBefore);
+  });
+
+  it("records a hit when a lesson is returned, under its own domain", async () => {
+    const world = await freshWorld();
+    const owner = await community();
+    const lesson = await approvedLesson(world, owner);
+    world.analytics.points.length = 0;
+    const body = SearchResponse.parse(await (await get(world, { domain: "fintech", q: lesson.description })).json());
+    expect(body.results.length).toBeGreaterThan(0);
+    expect(world.analytics.points).toEqual([{ indexes: ["human_search"], blobs: ["human_search", "fintech", "", "anonymous", "hit"], doubles: [1] }]);
+  });
+
+  it("writes nothing for a search that did not run: unknown domain, bad question, or a backend failure", async () => {
+    const world = await freshWorld();
+    world.analytics.points.length = 0;
+    const invalid: Array<Record<string, string>> = [{ domain: "healthcare", q: "move funds to the account" }, { domain: "fintech", q: "ab" }, { domain: "fintech" }];
+    for (const query of invalid) {
+      expect((await get(world, query)).status).toBe(400);
+    }
+    world.store.failQuery = true;
+    expect((await get(world, { domain: "fintech", q: "move funds to the account" })).status).toBe(503);
+    world.store.failQuery = false;
+    expect(world.analytics.points).toHaveLength(0);
+  });
+
+  it("answers the same when the telemetry dataset is unavailable", async () => {
+    const world = await freshWorld();
+    world.analytics.fail = true;
+    const response = await get(world, { domain: "fintech", q: "move funds to the account" });
+    expect(response.status).toBe(200);
+    expect(SearchResponse.parse(await response.json()).results).toBeDefined();
+    expect(world.analytics.points).toHaveLength(0);
   });
 });
 
@@ -226,6 +264,7 @@ describe("GET /api/v1/search: access and limits", () => {
     expect(limited.headers.get("Retry-After")).toBe("60");
     expect(limited.headers.get("Cache-Control")).toBe("no-store");
     expect(world.embedder.calls).toHaveLength(0);
+    expect(world.analytics.points).toHaveLength(0);
 
     // Another /24 is unaffected; another address in the same /24 shares the spent bucket.
     expect((await get(world, { domain: "fintech", q: "ab" }, { ip: freshIp() })).status).toBe(400);

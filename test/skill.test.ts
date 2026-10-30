@@ -13,6 +13,9 @@ import {
   sha256Hex,
   verifyEd25519,
 } from "../src/schema";
+import { parseRef } from "../src/telemetry";
+import { FEED_LESSON_PATH } from "../src/routes/feed";
+import { lessonIdFromHash } from "../ui/src/lib/lessonText";
 import { call } from "./helpers";
 
 describe("GET /skill.md", () => {
@@ -162,5 +165,44 @@ describe("skill.md contracts match the server", () => {
     expect(skillMarkdown).toContain("The field is `tool`, not `tool_name`.");
     expect(skillMarkdown).toContain("compliant_arguments");
     expect(skillMarkdown).toContain("steering_directive");
+  });
+});
+
+describe("skill.md: citing the lesson (section 4.6)", () => {
+  const LINE = "Tool arguments follow a verified Achromat MOM lesson: https://mom.achromat.ai/?ref=audit#lesson-<lesson_id>";
+
+  it("prints the exact citation line and the helper that builds it", () => {
+    expect(skillMarkdown).toContain("### 4.6 Citing the lesson");
+    expect(skillMarkdown).toContain(LINE);
+    expect(skillMarkdown).toContain("def citation_line(lesson: dict) -> str | None:");
+    expect(skillMarkdown).toContain('f"Tool arguments follow a verified Achromat MOM lesson: https://mom.achromat.ai/?ref=audit#lesson-{lesson_id}"');
+    expect(skillMarkdown).toContain("5. Cite the lesson in your output (section 4.6).");
+  });
+
+  it("restricts the line to approved lessons, to human-readable text, and allows opting out", () => {
+    expect(skillMarkdown).toContain('`review_status` is `"approved"`');
+    expect(skillMarkdown).toContain("A `pending` lesson is private to the key that submitted it");
+    expect(skillMarkdown).toMatch(/\*\*Never\*\* put it in the arguments of the tool call/);
+    expect(skillMarkdown).toContain("Skip the line if your operator tells you not to add attribution");
+  });
+
+  it("does not claim more than the service checks: it says the arguments follow a verified lesson", () => {
+    expect(skillMarkdown).not.toContain("Security constraint verified");
+    expect(skillMarkdown).not.toMatch(/verified by Achromat MOM/i);
+  });
+
+  it("builds a link the service and the page both understand: a valid ref, a path the Worker serves, a fragment the SPA opens", () => {
+    const id = crypto.randomUUID();
+    const url = new URL(`https://mom.achromat.ai/?ref=audit#lesson-${id}`);
+    expect(parseRef(url.searchParams.get("ref"))).toBe("audit"); // the ref survives the server's own slug rule
+    expect(lessonIdFromHash(url.hash)).toBe(id); // and the page opens exactly that lesson
+    expect(FEED_LESSON_PATH.test(`/api/v1/feed/${id}`)).toBe(true); // which it fetches from this public path
+  });
+
+  it("is referred to from each domain reference, without repeating the wording", () => {
+    for (const [name, text] of [["fintech.md", fintechMarkdown], ["industrial_iot.md", industrialIotMarkdown], ["devsecops.md", devsecopsMarkdown]] as const) {
+      expect(text, name).toContain("and cite it in your output (core protocol, section 4.6)");
+      expect(text, name).not.toContain("Tool arguments follow a verified");
+    }
   });
 });
