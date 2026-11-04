@@ -93,7 +93,7 @@ const BODY =
   '{"domain":"fintech","tool":"transfer_funds","task_description":"Move client funds to the settlement account","arguments":{"amount":50000}}';
 const BODY_SHA256 = "91f119d8da6881e815ac07761bfc9b89a3d0289af5dceb724b42926a455bbf88";
 const REQUEST_NONCE = "AAECAwQFBgcICQoLDA0ODw";
-const REQUEST_SIGNATURE = "mPAMbWJ24bSAseFFTHQL0zo7UcmAb50J9LjFPHU8jxXuweWXE9J9pdzuOQqHMp4801FXi3SSLKHKRRzmB0t9BA";
+const REQUEST_SIGNATURE = "Sw4duAH5yaIJj4KlUKfBT5Ea9BNnzinowXHA6p5lwqjcCCUF-CCdv88qKg0moPsmm3fpI5-Fw7oGtSMaDGDfBw";
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 describe("skill.md contracts match the server", () => {
@@ -137,7 +137,7 @@ describe("skill.md contracts match the server", () => {
     expect(await sha256Hex(BODY)).toBe(BODY_SHA256);
     expect(await sha256Hex("")).toBe(EMPTY_SHA256);
     const canonical = requestSigningString({
-      host: "mom.achromat.ai",
+      host: "achromat.ai",
       method: "POST",
       pathAndQuery: "/api/v1/recall",
       bodySha256Hex: BODY_SHA256,
@@ -146,7 +146,7 @@ describe("skill.md contracts match the server", () => {
     });
     expect(canonical.split("\n")).toEqual([
       "achromat-mom-v1",
-      "mom.achromat.ai",
+      "achromat.ai",
       "POST",
       "/api/v1/recall",
       BODY_SHA256,
@@ -157,7 +157,20 @@ describe("skill.md contracts match the server", () => {
     expect(await verifyEd25519(PUBLIC_KEY, REQUEST_SIGNATURE, canonical)).toBe(true);
     // A different body, host or method breaks it.
     expect(await verifyEd25519(PUBLIC_KEY, REQUEST_SIGNATURE, canonical.replace("POST", "GET"))).toBe(false);
-    expect(await verifyEd25519(PUBLIC_KEY, REQUEST_SIGNATURE, canonical.replace("mom.achromat.ai", "example.com"))).toBe(false);
+    expect(await verifyEd25519(PUBLIC_KEY, REQUEST_SIGNATURE, canonical.replace("achromat.ai", "example.com"))).toBe(false);
+  });
+
+  it("keeps the signature that was documented for mom.achromat.ai valid for that host, and for no other", async () => {
+    // The vector printed before the move. Clients built from it signed for the old host and must keep verifying there.
+    const LEGACY_REQUEST_SIGNATURE = "mPAMbWJ24bSAseFFTHQL0zo7UcmAb50J9LjFPHU8jxXuweWXE9J9pdzuOQqHMp4801FXi3SSLKHKRRzmB0t9BA";
+    const stringFor = (host: string) =>
+      requestSigningString({ host, method: "POST", pathAndQuery: "/api/v1/recall", bodySha256Hex: BODY_SHA256, timestamp: "1790000000", nonce: REQUEST_NONCE });
+    expect(await verifyEd25519(PUBLIC_KEY, LEGACY_REQUEST_SIGNATURE, stringFor("mom.achromat.ai"))).toBe(true);
+    expect(await verifyEd25519(PUBLIC_KEY, LEGACY_REQUEST_SIGNATURE, stringFor("achromat.ai"))).toBe(false);
+    // And the vector now printed is for the new host only.
+    expect(await verifyEd25519(PUBLIC_KEY, REQUEST_SIGNATURE, stringFor("achromat.ai"))).toBe(true);
+    expect(await verifyEd25519(PUBLIC_KEY, REQUEST_SIGNATURE, stringFor("mom.achromat.ai"))).toBe(false);
+    expect(skillMarkdown).not.toContain(LEGACY_REQUEST_SIGNATURE);
   });
 
   it("documents the recall field names the server actually accepts", () => {
@@ -169,13 +182,13 @@ describe("skill.md contracts match the server", () => {
 });
 
 describe("skill.md: citing the lesson (section 4.6)", () => {
-  const LINE = "Tool arguments follow a verified Achromat MOM lesson: https://mom.achromat.ai/?ref=audit#lesson-<lesson_id>";
+  const LINE = "Tool arguments follow a verified Achromat MOM lesson: https://achromat.ai/?ref=audit#lesson-<lesson_id>";
 
   it("prints the exact citation line and the helper that builds it", () => {
     expect(skillMarkdown).toContain("### 4.6 Citing the lesson");
     expect(skillMarkdown).toContain(LINE);
     expect(skillMarkdown).toContain("def citation_line(lesson: dict) -> str | None:");
-    expect(skillMarkdown).toContain('f"Tool arguments follow a verified Achromat MOM lesson: https://mom.achromat.ai/?ref=audit#lesson-{lesson_id}"');
+    expect(skillMarkdown).toContain('f"Tool arguments follow a verified Achromat MOM lesson: https://achromat.ai/?ref=audit#lesson-{lesson_id}"');
     expect(skillMarkdown).toContain("5. Cite the lesson in your output (section 4.6).");
   });
 
@@ -193,7 +206,7 @@ describe("skill.md: citing the lesson (section 4.6)", () => {
 
   it("builds a link the service and the page both understand: a valid ref, a path the Worker serves, a fragment the SPA opens", () => {
     const id = crypto.randomUUID();
-    const url = new URL(`https://mom.achromat.ai/?ref=audit#lesson-${id}`);
+    const url = new URL(`https://achromat.ai/?ref=audit#lesson-${id}`);
     expect(parseRef(url.searchParams.get("ref"))).toBe("audit"); // the ref survives the server's own slug rule
     expect(lessonIdFromHash(url.hash)).toBe(id); // and the page opens exactly that lesson
     expect(FEED_LESSON_PATH.test(`/api/v1/feed/${id}`)).toBe(true); // which it fetches from this public path

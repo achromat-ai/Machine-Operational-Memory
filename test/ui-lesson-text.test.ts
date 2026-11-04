@@ -111,8 +111,8 @@ describe("filtering the feed", () => {
 
 describe("the prompt a visitor copies", () => {
   it("names this site's own protocol document", () => {
-    expect(agentPrompt("https://mom.achromat.ai")).toBe(
-      "Read https://mom.achromat.ai/skill.md and follow it to register with Achromat Machine Operational Memory (MOM), then check it before you call a tool.",
+    expect(agentPrompt("https://achromat.ai")).toBe(
+      "Read https://achromat.ai/skill.md and follow it to register with Achromat Machine Operational Memory (MOM), then check it before you call a tool.",
     );
   });
 
@@ -121,11 +121,11 @@ describe("the prompt a visitor copies", () => {
     const before = scope.window;
     try {
       delete scope.window;
-      expect(siteOrigin()).toBe("https://mom.achromat.ai");
+      expect(siteOrigin()).toBe("https://achromat.ai");
       scope.window = { location: { origin: "https://preview.example.dev" } };
       expect(siteOrigin()).toBe("https://preview.example.dev");
       scope.window = { location: { origin: "javascript:alert(1)" } };
-      expect(siteOrigin()).toBe("https://mom.achromat.ai");
+      expect(siteOrigin()).toBe("https://achromat.ai");
     } finally {
       if (before === undefined) delete scope.window;
       else scope.window = before;

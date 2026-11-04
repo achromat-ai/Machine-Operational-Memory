@@ -1,7 +1,7 @@
 /** What the page says about itself to a visitor's agent. No DOM beyond an optional, defensive `window.location`. */
 import { withRef } from "./ref";
 
-const FALLBACK_ORIGIN = "https://mom.achromat.ai";
+const FALLBACK_ORIGIN = "https://achromat.ai";
 
 /** The product name. Titles and headings use it in full; body text may shorten it to "MOM" after the first mention. */
 export const BRAND = "Achromat Machine Operational Memory";

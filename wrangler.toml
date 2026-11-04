@@ -140,6 +140,15 @@ CLOUDFLARE_ACCOUNT_ID = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
 [triggers]
 crons = ["*/5 * * * *"]
 
+# Canonical host. `wrangler deploy` attaches a custom domain and creates its DNS record and certificate, so do not
+# deploy a commit that lists this route until the operator is ready for achromat.ai to go live (and has created the
+# Redirect Rule for mom.achromat.ai described in the README).
+[[routes]]
+pattern = "achromat.ai"
+custom_domain = true
+
+# Legacy host, kept indefinitely. Request signatures cover the host, so existing clients that signed for it must keep
+# working: /api/*, /mcp and its own /.well-known/did.json are still served here. src/discovery.ts LEGACY_HOST.
 [[routes]]
 pattern = "mom.achromat.ai"
 custom_domain = true

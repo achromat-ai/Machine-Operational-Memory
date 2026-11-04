@@ -54,7 +54,7 @@ async function serveAgentSkills(request: Request, env: Env, ctx: ExecutionContex
 
 export default {
   fetch(request, env, ctx) {
-    const { pathname } = new URL(request.url);
+    const { pathname, hostname } = new URL(request.url);
     // wrangler.toml keeps these out of run_worker_first. If one reaches the Worker anyway, behave as if it had not.
     if (isCertificateValidationPath(pathname)) return env.ASSETS.fetch(request);
     if (request.method === "GET" || request.method === "HEAD") {
@@ -64,7 +64,8 @@ export default {
         return skill;
       }
       if (isAgentSkillsPath(pathname)) return serveAgentSkills(request, env, ctx, pathname);
-      const discovery = discoveryResponse(request.method, pathname);
+      // The host matters for one document only: did.json is served per host (the legacy host keeps its own DID).
+      const discovery = discoveryResponse(request.method, pathname, hostname);
       if (discovery) return discovery;
     }
     // Top-level paths crawlers probe for, and everything under /.well-known that is not a document above.

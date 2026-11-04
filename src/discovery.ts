@@ -2,6 +2,9 @@
  * Machine discovery: /robots.txt, the Agentic Resource Discovery (ARD) catalog, the did:web identity document,
  * the MCP server card, and a strict 404 for every other /.well-known path.
  *
+ * The documents describe SITE_ORIGIN (achromat.ai) on every host. The one exception is the DID document: the request's
+ * Host selects it, so the legacy host mom.achromat.ai gets LEGACY_DID_DOCUMENT (see LEGACY_HOST).
+ *
  *   GET /robots.txt                          which crawlers may read what
  *   GET /.well-known/ard.json                the catalog, at the path ARD v0.91 names
  *   GET /.well-known/ai-catalog.json         the same bytes, at ARD's predecessor path (still read by some clients)
@@ -32,14 +35,27 @@ export const DID_PATH = "/.well-known/did.json";
 export const MCP_CARD_PATH = "/.well-known/mcp/server-card.json";
 
 /** The production origin. Fixed, not taken from the request, so the documents are the same on every host. */
-export const SITE_ORIGIN = "https://mom.achromat.ai";
+export const SITE_ORIGIN = "https://achromat.ai";
+
+/**
+ * The host the service was first published on. It keeps answering the API (/api/*), the MCP sandbox (/mcp) and its own
+ * DID document indefinitely: every request signature covers the host, so clients that signed for it must keep working.
+ * A Cloudflare Redirect Rule (not this Worker) sends its other GET and HEAD traffic to SITE_ORIGIN.
+ */
+export const LEGACY_HOST = "mom.achromat.ai";
+
+/** The publisher segment of every ARD URN (urn:air:<publisher>:...). It must equal the trust domain of the DID. */
+const PUBLISHER = new URL(SITE_ORIGIN).hostname;
 
 const FEED_PATH = "/api/v1/feed";
 
 // ───────────────────────────── identity: did:web, and the trustManifest that points at it ─────────────────────────────
 
-/** did:web for this host. It resolves to https://mom.achromat.ai/.well-known/did.json (DID_PATH). */
-export const DID = `did:web:${new URL(SITE_ORIGIN).hostname}`;
+/** did:web for this host. It resolves to https://achromat.ai/.well-known/did.json (DID_PATH). */
+export const DID = `did:web:${PUBLISHER}`;
+
+/** The did:web of the original host. Its document is served on that host only (LEGACY_DID_DOCUMENT). */
+export const LEGACY_DID = `did:web:${LEGACY_HOST}`;
 
 /**
  * The verification key id and its public key. This is the key that already signs every pair attestation
@@ -66,9 +82,32 @@ export const DID_DOCUMENT = {
   assertionMethod: [DID_KEY_ID],
 } as const;
 
+export const LEGACY_DID_KEY_ID = `${LEGACY_DID}#mom_pk_v1`;
+
+/**
+ * The DID document for the original host, served only when the request's Host is LEGACY_HOST. A did:web resolver
+ * requires the document `id` to equal the DID it resolved, so redirecting this path to the new host would break
+ * resolution of did:web:mom.achromat.ai. It carries the same key as DID_DOCUMENT, and `alsoKnownAs` points at the new DID.
+ */
+export const LEGACY_DID_DOCUMENT = {
+  "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/multikey/v1"],
+  id: LEGACY_DID,
+  alsoKnownAs: [DID],
+  verificationMethod: [
+    {
+      id: LEGACY_DID_KEY_ID,
+      type: "Multikey",
+      controller: LEGACY_DID,
+      publicKeyMultibase: MOM_PK_V1_MULTIBASE,
+    },
+  ],
+  authentication: [LEGACY_DID_KEY_ID],
+  assertionMethod: [LEGACY_DID_KEY_ID],
+} as const;
+
 /**
  * ARD trustManifest (spec section 4.5). ARD requires only `identity`, and its trust domain must match the
- * publisher segment of every entry's URN (urn:air:mom.achromat.ai:...). It goes on the host and on every entry:
+ * publisher segment of every entry's URN (urn:air:achromat.ai:...). It goes on the host and on every entry:
  * the AI Catalog schema allows it there and does NOT allow it at the document root.
  */
 export const TRUST_MANIFEST = {
@@ -178,7 +217,7 @@ export type CatalogEntry = {
 /** The four skills, typed as ARD names them. Order matters: entries[0] is the base protocol. */
 const SKILL_ENTRIES: readonly CatalogEntry[] = [
   {
-    identifier: "urn:air:mom.achromat.ai:skill:achromat-mom",
+    identifier: `urn:air:${PUBLISHER}:skill:achromat-mom`,
     displayName: "Achromat Machine Operational Memory",
     type: AGENT_SKILL_TYPE,
     url: `${SITE_ORIGIN}${SKILL_PATH}`,
@@ -208,7 +247,7 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
   // One entry per domain reference. Each is a skill of its own, so a registry can index and rank them separately.
   // They build on the base entry above: identity, signing, recall and calibrate are in the core protocol.
   {
-    identifier: "urn:air:mom.achromat.ai:skill:achromat-mom-fintech",
+    identifier: `urn:air:${PUBLISHER}:skill:achromat-mom-fintech`,
     displayName: "Achromat Machine Operational Memory for fintech",
     type: AGENT_SKILL_TYPE,
     url: `${SITE_ORIGIN}${FINTECH_PATH}`,
@@ -228,7 +267,7 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
     },
   },
   {
-    identifier: "urn:air:mom.achromat.ai:skill:achromat-mom-industrial-iot",
+    identifier: `urn:air:${PUBLISHER}:skill:achromat-mom-industrial-iot`,
     displayName: "Achromat Machine Operational Memory for industrial IoT",
     type: AGENT_SKILL_TYPE,
     url: `${SITE_ORIGIN}${INDUSTRIAL_IOT_PATH}`,
@@ -248,7 +287,7 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
     },
   },
   {
-    identifier: "urn:air:mom.achromat.ai:skill:achromat-mom-devsecops",
+    identifier: `urn:air:${PUBLISHER}:skill:achromat-mom-devsecops`,
     displayName: "Achromat Machine Operational Memory for DevSecOps",
     type: AGENT_SKILL_TYPE,
     url: `${SITE_ORIGIN}${DEVSECOPS_PATH}`,
@@ -282,7 +321,7 @@ const AI_SKILL_ENTRIES: readonly CatalogEntry[] = SKILL_ENTRIES.map((entry) => (
 }));
 
 const MCP_ENTRY: CatalogEntry = {
-  identifier: "urn:air:mom.achromat.ai:server:achromat-mom-mcp",
+  identifier: `urn:air:${PUBLISHER}:server:achromat-mom-mcp`,
   displayName: "Achromat Machine Operational Memory MCP server",
   type: MCP_CARD_TYPE,
   // The server card, not the npm page: `url` addresses the artifact document. The package is named in the card.
@@ -313,7 +352,7 @@ const MCP_ENTRY: CatalogEntry = {
 };
 
 const FEED_ENTRY: CatalogEntry = {
-  identifier: "urn:air:mom.achromat.ai:feed:approved-lessons",
+  identifier: `urn:air:${PUBLISHER}:feed:approved-lessons`,
   displayName: "Achromat Machine Operational Memory approved lessons",
   type: "application/json",
   url: `${SITE_ORIGIN}${FEED_PATH}`,
@@ -346,6 +385,7 @@ export const CATALOG = {
 /** The serialised catalog: identical bytes at both paths. */
 export const CATALOG_BODY = `${JSON.stringify(CATALOG, null, 2)}\n`;
 export const DID_BODY = `${JSON.stringify(DID_DOCUMENT, null, 2)}\n`;
+export const LEGACY_DID_BODY = `${JSON.stringify(LEGACY_DID_DOCUMENT, null, 2)}\n`;
 export const MCP_CARD_BODY = `${JSON.stringify(MCP_SERVER_CARD, null, 2)}\n`;
 
 // ───────────────────────────── serving ─────────────────────────────
@@ -372,11 +412,17 @@ const DOCUMENTS: Readonly<Record<string, Document>> = {
   [MCP_CARD_PATH]: { contentType: JSON_TYPE, body: MCP_CARD_BODY, headers: PUBLIC_5_MIN },
 };
 
-/** The response for a discovery path, or null if the request is not one (so the caller carries on). */
-export function discoveryResponse(method: string, pathname: string): Response | null {
+/**
+ * The response for a discovery path, or null if the request is not one (so the caller carries on).
+ * `hostname` is the host the request arrived on. The DID document is the one document that depends on it: a request
+ * for LEGACY_HOST gets the legacy document (LEGACY_DID_DOCUMENT), every other host gets the canonical one. The host
+ * is matched exactly and case-insensitively, so no other name can obtain the legacy document.
+ */
+export function discoveryResponse(method: string, pathname: string, hostname = ""): Response | null {
   if (method !== "GET" && method !== "HEAD") return null;
   if (!Object.hasOwn(DOCUMENTS, pathname)) return null;
-  const document = DOCUMENTS[pathname]!;
+  const document =
+    pathname === DID_PATH && hostname.toLowerCase() === LEGACY_HOST ? { ...DOCUMENTS[DID_PATH]!, body: LEGACY_DID_BODY } : DOCUMENTS[pathname]!;
   const headers = new Headers(SECURITY_HEADERS);
   headers.set("Content-Type", document.contentType);
   for (const [name, value] of Object.entries(document.headers)) headers.set(name, value);

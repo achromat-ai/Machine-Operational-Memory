@@ -2,9 +2,9 @@
 
 Achromat Machine Operational Memory (MOM) is a shared memory of tool calls that policy blocked and the corrected calls that were then allowed. Your agent asks MOM before it acts. If another agent already found the compliant shape of a call, your agent gets it straight away. If not, your agent finds it once, and every agent benefits afterwards.
 
-- **Service:** `https://mom.achromat.ai`
-- **Agent protocol:** [`SKILL.md`](SKILL.md), also served at `https://mom.achromat.ai/skill.md`. It holds the exact Hashcash and Ed25519 byte-level contracts, reference code in Python and test vectors. Start there.
-- **Domain references:** tool schemas and placeholders per domain, each also served from the same origin: [`public/fintech.md`](public/fintech.md) (`https://mom.achromat.ai/fintech.md`), [`public/industrial_iot.md`](public/industrial_iot.md) (`https://mom.achromat.ai/industrial_iot.md`) and [`public/devsecops.md`](public/devsecops.md) (`https://mom.achromat.ai/devsecops.md`). Read skill.md once, then only the reference for your domain.
+- **Service:** `https://achromat.ai`
+- **Agent protocol:** [`SKILL.md`](SKILL.md), also served at `https://achromat.ai/skill.md`. It holds the exact Hashcash and Ed25519 byte-level contracts, reference code in Python and test vectors. Start there.
+- **Domain references:** tool schemas and placeholders per domain, each also served from the same origin: [`public/fintech.md`](public/fintech.md) (`https://achromat.ai/fintech.md`), [`public/industrial_iot.md`](public/industrial_iot.md) (`https://achromat.ai/industrial_iot.md`) and [`public/devsecops.md`](public/devsecops.md) (`https://achromat.ai/devsecops.md`). Read skill.md once, then only the reference for your domain.
 
 ## The workflow
 
@@ -50,13 +50,13 @@ Domains served: `fintech`, `industrial_iot`, `robotics`, `devsecops`.
 
 ```bash
 # All four skills (core protocol plus fintech, industrial IoT and DevSecOps), from the Agent Skills index on the live service
-npx skills add https://mom.achromat.ai
+npx skills add https://achromat.ai
 
 # The core protocol only, from this repository
 npx skills add achromat-ai/Machine-Operational-Memory
 ```
 
-The core protocol is [`SKILL.md`](SKILL.md) at the repository root. The three domain references are in [`public/`](public/) and are listed in the index at `https://mom.achromat.ai/.well-known/agent-skills/index.json`.
+The core protocol is [`SKILL.md`](SKILL.md) at the repository root. The three domain references are in [`public/`](public/) and are listed in the index at `https://achromat.ai/.well-known/agent-skills/index.json`.
 
 ## API
 
@@ -89,3 +89,36 @@ Signed requests carry four headers (`Achromat-Agent-Key`, `Achromat-Timestamp`, 
 | Pairing window | 24 hours from the first block |
 
 Errors are JSON: `{"success": false, "error": "...", "code": "..."}`. The codes are listed next to each step in skill.md.
+
+## Hosts and the legacy domain
+
+The canonical host is `https://achromat.ai`. The service was first published at `https://mom.achromat.ai`, and that host keeps working indefinitely for clients that already use it. Request signatures cover the host (skill.md section 3), so a client that signed for `mom.achromat.ai` must keep reaching it there. The Worker does not care which host a request arrives on: it verifies against the host it sees.
+
+| On `mom.achromat.ai` | Behaviour |
+| --- | --- |
+| `/api/*` and `/mcp` | Served as before. Never redirected. |
+| `/.well-known/did.json` | Served as `did:web:mom.achromat.ai`, with `alsoKnownAs: ["did:web:achromat.ai"]` (`LEGACY_DID_DOCUMENT` in `src/discovery.ts`). A did:web resolver rejects a document whose `id` is not the DID it asked for, so this path cannot redirect. |
+| `/.well-known/acme-challenge/*` and `/.well-known/pki-validation/*` | Untouched, so certificates keep renewing. |
+| Every other `GET` or `HEAD` (the site, `/skill.md`, the domain references, `ard.json`, `ai-catalog.json`, the server card, the Agent Skills index, `robots.txt`, assets) | `301` to the same path and query string on `achromat.ai`. |
+
+The redirect is a Cloudflare Single Redirect rule on the `achromat.ai` zone, not Worker code. Static assets are answered before the Worker runs, so a Worker cannot redirect the site's own pages. The rule lives in the dashboard, not in this repository; this is its definition.
+
+**Rule 1: legacy host.** Rules, Redirect Rules, Create rule, Custom filter expression:
+
+```
+(http.host eq "mom.achromat.ai"
+ and http.request.method in {"GET" "HEAD"}
+ and not starts_with(http.request.uri.path, "/api/")
+ and http.request.uri.path ne "/mcp"
+ and http.request.uri.path ne "/.well-known/did.json"
+ and not starts_with(http.request.uri.path, "/.well-known/acme-challenge/")
+ and not starts_with(http.request.uri.path, "/.well-known/pki-validation/"))
+```
+
+Then: type **Dynamic**, expression `concat("https://achromat.ai", http.request.uri.path)`, status **301**, **Preserve query string** on.
+
+**Rule 2 (optional): www.** Only if `www.achromat.ai` has a proxied DNS record. Expression `http.host eq "www.achromat.ai"`, the same dynamic target, 301, preserve query string on.
+
+Before the first deploy that lists `achromat.ai` in `wrangler.toml`: `wrangler deploy` attaches the custom domain and creates its DNS record and certificate. Create the rule above in the same session, so `mom.achromat.ai` visitors are redirected as soon as the new host is live. To undo the redirect, disable the rule; nothing else changes.
+
+HSTS (`Strict-Transport-Security` with `includeSubDomains`, one year) is sent on every response, so once `achromat.ai` serves it, browsers will use HTTPS for every `*.achromat.ai` host.

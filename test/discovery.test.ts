@@ -12,6 +12,11 @@ import {
   DID_DOCUMENT,
   DID_KEY_ID,
   DID_PATH,
+  LEGACY_DID,
+  LEGACY_DID_BODY,
+  LEGACY_DID_DOCUMENT,
+  LEGACY_DID_KEY_ID,
+  LEGACY_HOST,
   MCP_CARD_BODY,
   MCP_CARD_PATH,
   MCP_CARD_TYPE,
@@ -27,7 +32,7 @@ import {
   wellKnownNotFound,
 } from "../src/discovery";
 import { SKILL_PATH } from "../src/skill";
-import { call } from "./helpers";
+import { LEGACY_ORIGIN, call, callAt } from "./helpers";
 
 // ───────────────────────── a small robots.txt reader (RFC 9309 rules) ─────────────────────────
 
@@ -270,10 +275,10 @@ describe("the ARD catalog", () => {
   it("keeps the base skill and adds one skill entry per domain reference, each at the route that serves it", async () => {
     const skills = CATALOG.entries.filter((entry) => entry.type === "application/agent-skills+md");
     expect(skills.map((entry) => entry.identifier)).toEqual([
-      "urn:air:mom.achromat.ai:skill:achromat-mom",
-      "urn:air:mom.achromat.ai:skill:achromat-mom-fintech",
-      "urn:air:mom.achromat.ai:skill:achromat-mom-industrial-iot",
-      "urn:air:mom.achromat.ai:skill:achromat-mom-devsecops",
+      "urn:air:achromat.ai:skill:achromat-mom",
+      "urn:air:achromat.ai:skill:achromat-mom-fintech",
+      "urn:air:achromat.ai:skill:achromat-mom-industrial-iot",
+      "urn:air:achromat.ai:skill:achromat-mom-devsecops",
     ]);
     const domains = [
       ["achromat-mom-fintech", "/fintech.md", "fintech"],
@@ -281,7 +286,7 @@ describe("the ARD catalog", () => {
       ["achromat-mom-devsecops", "/devsecops.md", "devsecops"],
     ] as const;
     for (const [name, path, domain] of domains) {
-      const entry = skills.find((candidate) => candidate.identifier === `urn:air:mom.achromat.ai:skill:${name}`) as Record<string, unknown> | undefined;
+      const entry = skills.find((candidate) => candidate.identifier === `urn:air:achromat.ai:skill:${name}`) as Record<string, unknown> | undefined;
       expect(entry, name).toBeDefined();
       expect(entry!.url, name).toBe(`${SITE_ORIGIN}${path}`);
       expect((entry!.metadata as Record<string, unknown>).domain, name).toBe(domain);
@@ -440,6 +445,68 @@ describe("GET /.well-known/did.json", () => {
     expect((await call(DID_PATH, { method: "POST", body: "{}" })).status).toBe(404);
   });
 
+  describe("per host: the canonical document by default, the legacy one on the legacy host", () => {
+    it("is did:web:achromat.ai by default, with no pointer to anything else", async () => {
+      expect(SITE_ORIGIN).toBe("https://achromat.ai");
+      expect(DID).toBe("did:web:achromat.ai");
+      const parsed = JSON.parse(await (await call(DID_PATH)).text());
+      expect(parsed.id).toBe("did:web:achromat.ai");
+      expect(parsed).not.toHaveProperty("alsoKnownAs");
+    });
+
+    it("serves the legacy document, with an alsoKnownAs pointer to the new DID, when the Host is mom.achromat.ai", async () => {
+      expect(LEGACY_HOST).toBe("mom.achromat.ai");
+      expect(LEGACY_DID).toBe("did:web:mom.achromat.ai");
+      const response = await callAt(LEGACY_ORIGIN, DID_PATH);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+      expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+      const body = await response.text();
+      expect(body).toBe(LEGACY_DID_BODY);
+      const parsed = JSON.parse(body);
+      expect(parsed).toEqual(LEGACY_DID_DOCUMENT);
+      expect(parsed.id).toBe("did:web:mom.achromat.ai");
+      expect(parsed.alsoKnownAs).toEqual(["did:web:achromat.ai"]);
+    });
+
+    it("answers a did:web resolver for each host with a document whose id is the DID it resolved", async () => {
+      // did:web resolution rejects a document whose id differs from the DID that was asked for.
+      for (const [origin, did] of [[SITE_ORIGIN, DID], [LEGACY_ORIGIN, LEGACY_DID]] as const) {
+        const resolved = `https://${did.slice("did:web:".length).replaceAll(":", "/")}/.well-known/did.json`;
+        expect(resolved).toBe(`${origin}${DID_PATH}`);
+        const document = JSON.parse(await (await callAt(origin, DID_PATH)).text());
+        expect(document.id, origin).toBe(did);
+        expect(document.verificationMethod[0].controller, origin).toBe(did);
+        expect(document.verificationMethod[0].id.startsWith(`${did}#`), origin).toBe(true);
+      }
+    });
+
+    it("carries the same attestation key in both documents, so existing pair attestations still verify", () => {
+      expect(LEGACY_DID_KEY_ID).toBe(`${LEGACY_DID}#${MOM_ATTESTATION_KID}`);
+      const [canonical] = DID_DOCUMENT.verificationMethod;
+      const [legacy] = LEGACY_DID_DOCUMENT.verificationMethod;
+      expect(legacy.publicKeyMultibase).toBe(canonical.publicKeyMultibase);
+      expect(LEGACY_DID_DOCUMENT.authentication).toEqual([LEGACY_DID_KEY_ID]);
+      expect(LEGACY_DID_DOCUMENT.assertionMethod).toEqual([LEGACY_DID_KEY_ID]);
+    });
+
+    it("hands the legacy document to that exact host only, in any letter case, and to no look-alike", async () => {
+      for (const host of ["MOM.Achromat.AI"]) {
+        expect(await (await callAt(`https://${host}`, DID_PATH)).text(), host).toBe(LEGACY_DID_BODY);
+      }
+      for (const host of ["achromat.ai", "www.achromat.ai", "evil-mom.achromat.ai", "mom.achromat.ai.example.com", "xmom.achromat.ai", "other.achromat.ai"]) {
+        expect(await (await callAt(`https://${host}`, DID_PATH)).text(), host).toBe(DID_BODY);
+      }
+    });
+
+    it("leaves every other discovery document identical on both hosts", async () => {
+      for (const path of [ARD_PATH, AI_CATALOG_PATH, MCP_CARD_PATH, ROBOTS_PATH]) {
+        expect(await (await callAt(LEGACY_ORIGIN, path)).text(), path).toBe(await (await call(path)).text());
+      }
+    });
+  });
+
   it("is the document that did:web resolution for this host would fetch, and names itself", () => {
     const host = new URL(SITE_ORIGIN).hostname;
     expect(DID).toBe(`did:web:${host}`);
@@ -548,7 +615,7 @@ describe("the expanded ARD catalog", () => {
     expect(standard.length).toBe(4);
     expect(twins.length).toBe(4);
     // The base protocol stays first: other tests and clients read entries[0].
-    expect(entries[0]!.identifier).toBe("urn:air:mom.achromat.ai:skill:achromat-mom");
+    expect(entries[0]!.identifier).toBe("urn:air:achromat.ai:skill:achromat-mom");
     for (const original of standard) {
       const twin = twins.find((candidate) => candidate.identifier === original.identifier.replace(":skill:", ":ai-skill:"));
       expect(twin, original.identifier).toBeDefined();
@@ -556,10 +623,10 @@ describe("the expanded ARD catalog", () => {
       expect(strip(twin as Record<string, unknown>), original.identifier).toEqual(strip(original as Record<string, unknown>));
     }
     expect(twins.map((entry) => entry.identifier)).toEqual([
-      "urn:air:mom.achromat.ai:ai-skill:achromat-mom",
-      "urn:air:mom.achromat.ai:ai-skill:achromat-mom-fintech",
-      "urn:air:mom.achromat.ai:ai-skill:achromat-mom-industrial-iot",
-      "urn:air:mom.achromat.ai:ai-skill:achromat-mom-devsecops",
+      "urn:air:achromat.ai:ai-skill:achromat-mom",
+      "urn:air:achromat.ai:ai-skill:achromat-mom-fintech",
+      "urn:air:achromat.ai:ai-skill:achromat-mom-industrial-iot",
+      "urn:air:achromat.ai:ai-skill:achromat-mom-devsecops",
     ]);
   });
 
@@ -567,7 +634,7 @@ describe("the expanded ARD catalog", () => {
     const mcp = entries.filter((entry) => entry.type === MCP_CARD_TYPE);
     expect(mcp.length).toBe(1);
     const entry = mcp[0]!;
-    expect(entry.identifier).toBe("urn:air:mom.achromat.ai:server:achromat-mom-mcp");
+    expect(entry.identifier).toBe("urn:air:achromat.ai:server:achromat-mom-mcp");
     expect(entry.url).toBe(`${SITE_ORIGIN}${MCP_CARD_PATH}`);
     expect(entry.version).toBe(MCP_SERVER_CARD.version);
     expect(entry.metadata?.npmPackage).toBe(MCP_SERVER_CARD._meta["ai.achromat/distribution"].identifier);

@@ -62,7 +62,7 @@ describe("searchPath", () => {
   it("encodes the question into the query string", () => {
     const path = searchPath({ domain: "devsecops", q: "run rm -rf & more=1" });
     expect(path.startsWith("/api/v1/search?")).toBe(true);
-    const params = new URL(path, "https://mom.achromat.ai").searchParams;
+    const params = new URL(path, "https://achromat.ai").searchParams;
     expect([...params.keys()]).toEqual(["domain", "q"]);
     expect(params.get("q")).toBe("run rm -rf & more=1");
   });
@@ -134,8 +134,8 @@ describe("the ref tag of the page", () => {
   });
 
   it("rides on the copied prompt's skill.md URL for tagged visitors only", () => {
-    expect(agentPrompt("https://mom.achromat.ai", "launch")).toContain("https://mom.achromat.ai/skill.md?ref=launch ");
-    expect(agentPrompt("https://mom.achromat.ai")).toContain("https://mom.achromat.ai/skill.md and");
+    expect(agentPrompt("https://achromat.ai", "launch")).toContain("https://achromat.ai/skill.md?ref=launch ");
+    expect(agentPrompt("https://achromat.ai")).toContain("https://achromat.ai/skill.md and");
   });
 });
 

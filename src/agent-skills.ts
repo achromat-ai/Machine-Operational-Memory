@@ -1,6 +1,6 @@
 /**
  * Agent Skills discovery (Cloudflare's agent-skills-discovery-rfc, v0.2.0), so that
- * `npx skills add https://mom.achromat.ai` and other installers find the four skill documents.
+ * `npx skills add https://achromat.ai` and other installers find the four skill documents.
  *
  *   GET /.well-known/agent-skills/index.json               the index
  *   GET /.well-known/agent-skills/<name>/SKILL.md          the RFC's conventional location of each skill

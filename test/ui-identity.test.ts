@@ -31,9 +31,9 @@ import { MemoryStore, errorResponse, makeIdentity, makeSolver, workerEdge } from
 
 const SEED = Uint8Array.from({ length: 32 }, (_, i) => i);
 const PUBLIC_KEY = "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"; // public key of SEED (SKILL.md section 8)
-const REQUEST_SIGNATURE = "mPAMbWJ24bSAseFFTHQL0zo7UcmAb50J9LjFPHU8jxXuweWXE9J9pdzuOQqHMp4801FXi3SSLKHKRRzmB0t9BA";
+const REQUEST_SIGNATURE = "Sw4duAH5yaIJj4KlUKfBT5Ea9BNnzinowXHA6p5lwqjcCCUF-CCdv88qKg0moPsmm3fpI5-Fw7oGtSMaDGDfBw";
 const REQUEST_STRING_INPUT = {
-  host: "mom.achromat.ai",
+  host: "achromat.ai",
   method: "POST",
   pathAndQuery: "/api/v1/recall",
   bodySha256Hex: "91f119d8da6881e815ac07761bfc9b89a3d0289af5dceb724b42926a455bbf88",

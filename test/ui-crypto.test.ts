@@ -52,7 +52,7 @@ const BODY =
   '{"domain":"fintech","tool":"transfer_funds","task_description":"Move client funds to the settlement account","arguments":{"amount":50000}}';
 const BODY_SHA256 = "91f119d8da6881e815ac07761bfc9b89a3d0289af5dceb724b42926a455bbf88";
 const REQUEST_NONCE = "AAECAwQFBgcICQoLDA0ODw";
-const REQUEST_SIGNATURE = "mPAMbWJ24bSAseFFTHQL0zo7UcmAb50J9LjFPHU8jxXuweWXE9J9pdzuOQqHMp4801FXi3SSLKHKRRzmB0t9BA";
+const REQUEST_SIGNATURE = "Sw4duAH5yaIJj4KlUKfBT5Ea9BNnzinowXHA6p5lwqjcCCUF-CCdv88qKg0moPsmm3fpI5-Fw7oGtSMaDGDfBw";
 
 function randomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);
@@ -172,7 +172,7 @@ describe("canonical strings", () => {
 
   it("builds the request signing string exactly like the server", () => {
     const inputs = [
-      { host: "mom.achromat.ai", method: "POST", pathAndQuery: "/api/v1/recall", bodySha256Hex: BODY_SHA256, timestamp: "1790000000", nonce: REQUEST_NONCE },
+      { host: "achromat.ai", method: "POST", pathAndQuery: "/api/v1/recall", bodySha256Hex: BODY_SHA256, timestamp: "1790000000", nonce: REQUEST_NONCE },
       { host: "MOM.Achromat.AI", method: "get", pathAndQuery: "/api/v1/agents/me?x=1&y=%20", bodySha256Hex: EMPTY_BODY_SHA256_HEX, timestamp: "1790000001", nonce: "AAAAAAAAAAAAAAAAAAAAAA" },
       { host: "localhost:8787", method: "Post", pathAndQuery: "/api/v1/calibrate", bodySha256Hex: "0".repeat(64), timestamp: "1790000002", nonce: "_-_-_-_-_-_-_-_-_-_-_-" },
     ];
@@ -200,7 +200,7 @@ describe("canonical strings", () => {
 
   it("matches the skill.md request-signature vector: the server verifies the browser-built string", async () => {
     const canonical = requestSigningString({
-      host: "mom.achromat.ai",
+      host: "achromat.ai",
       method: "POST",
       pathAndQuery: "/api/v1/recall",
       bodySha256Hex: sha256Hex(utf8(BODY)),
@@ -216,7 +216,7 @@ describe("canonical strings", () => {
     expect(bytesToHex(SEED)).toBe(SEED_HEX);
     const key = await crypto.subtle.importKey("pkcs8", pkcs8(), { name: "Ed25519" }, false, ["sign"]);
     const canonical = requestSigningString({
-      host: "mom.achromat.ai",
+      host: "achromat.ai",
       method: "POST",
       pathAndQuery: "/api/v1/recall",
       bodySha256Hex: BODY_SHA256,

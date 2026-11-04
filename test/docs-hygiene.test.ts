@@ -161,14 +161,14 @@ describe("public documentation covers the agent workflow", () => {
     for (const [name, text, domain, tools, skillName] of references) {
       expect(text.startsWith(`---\nname: ${skillName}\n`), `${name} front matter`).toBe(true);
       expect(text, name).toContain(`"domain": "${domain}"`);
-      expect(text, name).toContain("https://mom.achromat.ai/skill.md");
+      expect(text, name).toContain("https://achromat.ai/skill.md");
       expect(text, name).toContain("[VERIFIED_STATE]");
       for (const tool of tools) expect(text, `${name} ${tool}`).toContain(`"tool": "${tool}"`);
     }
   });
 
   it("links the core protocol to all three domain references", () => {
-    for (const path of ["/fintech.md", "/industrial_iot.md", "/devsecops.md"]) expect(skill, path).toContain(`https://mom.achromat.ai${path}`);
+    for (const path of ["/fintech.md", "/industrial_iot.md", "/devsecops.md"]) expect(skill, path).toContain(`https://achromat.ai${path}`);
   });
 
   it("no public document exposes a shared, global capacity figure", () => {

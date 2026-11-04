@@ -9,7 +9,7 @@ import {
   sha256Hex,
 } from "../src/schema";
 
-export const ORIGIN = "https://mom.achromat.ai";
+export const ORIGIN = "https://achromat.ai";
 
 let networkCounter = 0;
 /** A fresh /24 per call, so tests never share rate-limit or registration-cap buckets. */
@@ -18,11 +18,19 @@ export function freshIp(): string {
   return `10.${(networkCounter >> 8) & 255}.${networkCounter & 255}.7`;
 }
 
-export function call(path: string, init: RequestInit & { ip?: string | null } = {}): Promise<Response> {
+/** The host the service was first published on. It keeps serving the API and the MCP sandbox (src/discovery.ts LEGACY_HOST). */
+export const LEGACY_ORIGIN = "https://mom.achromat.ai";
+
+/** Like `call`, but to a chosen origin, so a test can reach the Worker through the legacy host or any other. */
+export function callAt(origin: string, path: string, init: RequestInit & { ip?: string | null } = {}): Promise<Response> {
   const { ip, ...rest } = init;
   const headers = new Headers(rest.headers);
   if (ip !== null) headers.set("CF-Connecting-IP", ip ?? freshIp());
-  return exports.default.fetch(new Request(ORIGIN + path, { ...rest, headers }));
+  return exports.default.fetch(new Request(origin + path, { ...rest, headers }));
+}
+
+export function call(path: string, init: RequestInit & { ip?: string | null } = {}): Promise<Response> {
+  return callAt(ORIGIN, path, init);
 }
 
 export interface TestAgent {

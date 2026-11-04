@@ -55,7 +55,7 @@ export const SANDBOX_SERVER_INFO = {
   name: "ai.achromat/mom-sandbox",
   title: "Achromat Machine Operational Memory (sandbox)",
   version: "0.1.0",
-  websiteUrl: "https://mom.achromat.ai",
+  websiteUrl: "https://achromat.ai",
 } as const;
 
 const SERVER_INSTRUCTIONS =

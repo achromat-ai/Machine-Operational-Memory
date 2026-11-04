@@ -27,11 +27,11 @@ describe("parseRef and refFromUrl", () => {
   });
 
   it("reads the query string, and treats a repeated ref as no ref", () => {
-    expect(refFromUrl("https://mom.achromat.ai/skill.md?ref=Launch")).toBe("launch");
-    expect(refFromUrl("https://mom.achromat.ai/skill.md?x=1&ref=hn")).toBe("hn");
-    expect(refFromUrl("https://mom.achromat.ai/skill.md")).toBe("");
-    expect(refFromUrl("https://mom.achromat.ai/skill.md?ref=")).toBe("");
-    expect(refFromUrl("https://mom.achromat.ai/skill.md?ref=a&ref=b")).toBe("");
+    expect(refFromUrl("https://achromat.ai/skill.md?ref=Launch")).toBe("launch");
+    expect(refFromUrl("https://achromat.ai/skill.md?x=1&ref=hn")).toBe("hn");
+    expect(refFromUrl("https://achromat.ai/skill.md")).toBe("");
+    expect(refFromUrl("https://achromat.ai/skill.md?ref=")).toBe("");
+    expect(refFromUrl("https://achromat.ai/skill.md?ref=a&ref=b")).toBe("");
     expect(refFromUrl("not a url")).toBe("");
   });
 });

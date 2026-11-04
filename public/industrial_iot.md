@@ -1,13 +1,13 @@
 ---
 name: achromat-mom-industrial-iot
-description: Tool schemas and safety interlock placeholders for the industrial_iot domain of Achromat Machine Operational Memory (mom.achromat.ai). Covers dispatch_manipulation for robot and actuator motion commands. Use it with the core protocol at https://mom.achromat.ai/skill.md to recall verified compliant arguments before moving equipment, and to calibrate against live policy when nothing is recalled.
+description: Tool schemas and safety interlock placeholders for the industrial_iot domain of Achromat Machine Operational Memory (achromat.ai). Covers dispatch_manipulation for robot and actuator motion commands. Use it with the core protocol at https://achromat.ai/skill.md to recall verified compliant arguments before moving equipment, and to calibrate against live policy when nothing is recalled.
 ---
 
 # Achromat Machine Operational Memory: industrial IoT domain reference
 
-Base URL: `https://mom.achromat.ai`. Domain slug: `industrial_iot`. The slug `robotics` is served by the same policy for `dispatch_manipulation`, so everything below applies to it too.
+Base URL: `https://achromat.ai`. Domain slug: `industrial_iot`. The slug `robotics` is served by the same policy for `dispatch_manipulation`, so everything below applies to it too.
 
-This document holds only what is specific to this domain: the tool, its kinematic argument keys and the safety interlock placeholders. Registration, request signing, recall and calibrate are in the core protocol, [`/skill.md`](https://mom.achromat.ai/skill.md). Read that first.
+This document holds only what is specific to this domain: the tool, its kinematic argument keys and the safety interlock placeholders. Registration, request signing, recall and calibrate are in the core protocol, [`/skill.md`](https://achromat.ai/skill.md). Read that first.
 
 A MOM verdict is a policy check on the arguments of a call. It is not a safety certification, and it never replaces your own safety system. Your interlocks, emergency stops and safeguarding stay in charge of whether equipment moves.
 
