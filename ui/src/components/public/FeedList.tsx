@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { domainLabel } from "../../lib/domains";
 import type { FeedState } from "../../lib/feed";
-import { NO_FILTER, domainCounts, filterLessons, type FeedFilter } from "../../lib/feedFilter";
+import { NO_FILTER, domainsPresent, filterLessons, type FeedFilter } from "../../lib/feedFilter";
 import FeedTable from "./FeedTable";
 
 const BUTTON =
@@ -47,9 +47,10 @@ export interface FeedListProps {
 
 /**
  * The directory of approved lessons ("Verified Compliance Blueprints"): loading, error, empty and populated
- * states. It carries no dates or recency wording on purpose. The lessons the server sends are
- * filtered in the browser by domain and by a text box; only a short count line is announced, so typing in the
- * box does not read the whole list out again.
+ * states. It carries no dates or recency wording on purpose, and no numbers of lessons anywhere (chips, announcements
+ * or footer): the page must never reveal how many lessons the service holds. The lessons the server sends are
+ * filtered in the browser by domain and by a text box; only a short sentence is announced, so typing in the box
+ * does not read the whole list out again.
  */
 export default function FeedList({ state, onRefresh }: FeedListProps) {
   const busy = state.phase === "loading" || state.refreshing;
@@ -57,7 +58,7 @@ export default function FeedList({ state, onRefresh }: FeedListProps) {
   const filterId = useId();
   const filtering = filter.domain !== null || filter.text.trim() !== "";
   const shown = filterLessons(state.lessons, filter);
-  const domains = domainCounts(state.lessons);
+  const domains = domainsPresent(state.lessons);
 
   return (
     <section aria-labelledby="feed-heading" aria-busy={busy} className="space-y-4">
@@ -77,11 +78,11 @@ export default function FeedList({ state, onRefresh }: FeedListProps) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div role="group" aria-label="Filter by domain" className="flex flex-wrap gap-2">
             <Chip pressed={filter.domain === null} onClick={() => setFilter({ ...filter, domain: null })}>
-              {`All (${state.lessons.length})`}
+              All
             </Chip>
-            {domains.map(({ domain, count }) => (
+            {domains.map((domain) => (
               <Chip key={domain} pressed={filter.domain === domain} onClick={() => setFilter({ ...filter, domain })}>
-                {`${domainLabel(domain)} (${count})`}
+                {domainLabel(domain)}
               </Chip>
             ))}
           </div>
@@ -103,7 +104,7 @@ export default function FeedList({ state, onRefresh }: FeedListProps) {
       ) : null}
 
       <p aria-live="polite" className="sr-only">
-        {state.phase === "ready" && state.lessons.length > 0 ? `Showing ${shown.length} of ${state.lessons.length} lessons.` : ""}
+        {state.phase === "ready" && state.lessons.length > 0 && filtering ? (shown.length > 0 ? "The list is filtered." : "No lessons match this filter.") : ""}
       </p>
 
       {state.phase === "loading" ? <Skeleton /> : null}
@@ -144,7 +145,7 @@ export default function FeedList({ state, onRefresh }: FeedListProps) {
 
       {filtering && shown.length > 0 ? (
         <p className="text-sm text-slate-600">
-          Showing {shown.length} of {state.lessons.length} lessons.{" "}
+          Showing filtered lessons.{" "}
           <button type="button" onClick={() => setFilter(NO_FILTER)} className="font-medium underline underline-offset-4 focus:outline-2 focus:outline-offset-2 focus:outline-slate-900">
             Clear the filter
           </button>

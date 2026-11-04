@@ -30,11 +30,13 @@ export function filterLessons(lessons: readonly FeedLessonView[], filter: FeedFi
   return lessons.filter((lesson) => (filter.domain === null || lesson.domain === filter.domain) && (needle === "" || haystack(lesson).includes(needle)));
 }
 
-/** The domains present in `lessons` with their counts: the known ones in their usual order, then any others. */
-export function domainCounts(lessons: readonly FeedLessonView[]): Array<{ domain: string; count: number }> {
-  const counts = new Map<string, number>();
-  for (const lesson of lessons) counts.set(lesson.domain, (counts.get(lesson.domain) ?? 0) + 1);
-  const known: string[] = DOMAIN_ORDER.filter((domain) => counts.has(domain));
-  const others = [...counts.keys()].filter((domain) => !known.includes(domain)).sort();
-  return [...known, ...others].map((domain) => ({ domain, count: counts.get(domain)! }));
+/**
+ * The domains present in `lessons`: the known ones in their usual order, then any others. Deliberately returns no
+ * counts. The feed is only the newest slice of the lessons, so a number here would read as a size of the whole set.
+ */
+export function domainsPresent(lessons: readonly FeedLessonView[]): string[] {
+  const present = new Set(lessons.map((lesson) => lesson.domain));
+  const known: string[] = DOMAIN_ORDER.filter((domain) => present.has(domain));
+  const others = [...present].filter((domain) => !known.includes(domain)).sort();
+  return [...known, ...others];
 }

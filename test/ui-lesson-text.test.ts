@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { domainLabel } from "../ui/src/lib/domains";
 import type { FeedLessonView } from "../ui/src/lib/feed";
-import { NO_FILTER, domainCounts, filterLessons } from "../ui/src/lib/feedFilter";
+import { NO_FILTER, domainsPresent, filterLessons } from "../ui/src/lib/feedFilter";
 import * as lessonText from "../ui/src/lib/lessonText";
 import { changedFieldLabels, lessonHeading, lessonIdFromHash, splitSteering } from "../ui/src/lib/lessonText";
 import { agentPrompt, siteOrigin } from "../ui/src/lib/site";
@@ -94,13 +94,12 @@ describe("filtering the feed", () => {
     expect(filterLessons(all, { domain: "fintech", text: "owasp" })).toEqual([]);
   });
 
-  it("counts the domains present, known ones first in their usual order", () => {
-    expect(domainCounts(all)).toEqual([
-      { domain: "fintech", count: 1 },
-      { domain: "industrial_iot", count: 1 },
-      { domain: "devsecops", count: 1 },
-    ]);
-    expect(domainCounts([lesson({ domain: "zeta" }), lesson({ domain: "alpha" }), lesson()]).map((entry) => entry.domain)).toEqual(["devsecops", "alpha", "zeta"]);
+  it("lists the domains present, known ones first in their usual order, and carries no counts", () => {
+    expect(domainsPresent(all)).toEqual(["fintech", "industrial_iot", "devsecops"]);
+    expect(domainsPresent([lesson({ domain: "zeta" }), lesson({ domain: "alpha" }), lesson()])).toEqual(["devsecops", "alpha", "zeta"]);
+    // Many lessons of one domain still give one entry, and the entry is only the slug.
+    expect(domainsPresent([lesson(), lesson(), lesson()])).toEqual(["devsecops"]);
+    expect(domainsPresent([])).toEqual([]);
   });
 
   it("names a domain it does not know by its slug", () => {

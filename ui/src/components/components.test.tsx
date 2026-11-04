@@ -459,20 +459,32 @@ describe("FeedList", () => {
     expect(render(ready([edited]), `#lesson-${ID}`)).toContain("Large transfers need two people.");
   });
 
-  it("offers a domain filter with counts and a labelled text filter, and announces only a short count", () => {
+  it("offers a domain filter and a labelled text filter, with no lesson counts anywhere", () => {
     const other = { ...lesson, lessonId: "22222222-2222-4222-8222-222222222222", domain: "devsecops", tool: "http_request" };
     const html = render(ready([lesson, other]));
     expect(html).toContain('role="group" aria-label="Filter by domain"');
-    expect(html).toContain("All (2)");
-    expect(html).toContain("Fintech and banking (1)");
-    expect(html).toContain("DevSecOps (1)");
-    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>All \(2\)/);
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>All<\/button>/);
+    expect(html).toMatch(/<button[^>]*aria-pressed="false"[^>]*>Fintech and banking<\/button>/);
+    expect(html).toMatch(/<button[^>]*aria-pressed="false"[^>]*>DevSecOps<\/button>/);
     expect(html).toMatch(/<label[^>]*>Filter these lessons<\/label>/);
     expect(html).toContain('type="search"');
-    expect(html).toContain("Showing 2 of 2 lessons.");
-    // The live region is the count line, not the list.
+    // The page never says how many lessons there are: no number on a chip, none in an announcement.
+    expect(html).not.toMatch(/\(\d+\)/);
+    expect(html).not.toMatch(/\bof \d+ lessons?\b/i);
+    expect(html).not.toMatch(/\b\d+ (approved |verified |public )?(lessons?|blueprints?)\b/i);
+    expect(html).not.toContain("Showing 2 of 2");
+    // The live region stays empty until a filter is applied, and is a single paragraph, not the list.
     expect(html).not.toMatch(/<section[^>]*aria-live/);
-    expect(html).toMatch(/<p aria-live="polite" class="sr-only">Showing 2 of 2 lessons\.<\/p>/);
+    expect(html).toMatch(/<p aria-live="polite" class="sr-only"><\/p>/);
+  });
+
+  it("shows no count in any feed state", () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ ...lesson, lessonId: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, domain: i % 2 === 0 ? "devsecops" : "industrial_iot" }));
+    for (const html of [render(ready(many)), render(ready([])), render(ready([lesson], { stale: true, error: "The feed could not be reached." }))]) {
+      expect(html).not.toMatch(/\(\d+\)/);
+      expect(html).not.toMatch(/\bof \d+ lessons?\b/i);
+      expect(html).not.toMatch(/\bShowing \d+/);
+    }
   });
 
   it("keeps the old lessons on screen and says so when a refresh fails", () => {
