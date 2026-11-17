@@ -1,5 +1,8 @@
 /**
- * GET /api/v1/feed (public, unsigned): the most recently updated approved lessons, for the landing page.
+ * GET /api/v1/feed (public, unsigned): the most recently updated approved lessons of every domain, for the landing page.
+ * Each domain contributes at most FEED_PER_DOMAIN lessons (featured first, then newest), and the domains are
+ * interleaved, so one domain seeded in bulk can never push the others off the page. The response carries no count
+ * and no "more" marker: a domain with FEED_PER_DOMAIN or more lessons looks the same whatever its true size.
  *
  * Order: caller network → per-network limit (60/min) → edge cache → D1 → response.
  *
@@ -26,7 +29,7 @@ import type { Env } from "../env";
 import { apiError } from "../http";
 import type { AuthVariables } from "../middleware/auth";
 import { callerNetwork } from "../network";
-import { FEED_LIMIT, FeedLessonResponse, FeedResponse, MomUuid } from "../schema";
+import { FEED_PER_DOMAIN, FeedLessonResponse, FeedResponse, MomUuid } from "../schema";
 import { recordTelemetry, refFromUrl } from "../telemetry";
 
 export const FEED_PATH = "/api/v1/feed";
@@ -77,10 +80,29 @@ SELECT l.lesson_id, l.domain, l.tool_name, l.changed_paths_json,
   JOIN trap_events e ON e.block_receipt_id = l.trap_event_id
  WHERE s.review_status = 'approved' AND s.visibility = 'public'`;
 
-/** Uses lesson_state_by_status (review_status, updated_at_ms); only ties on updated_at_ms are sorted. */
-const FEED_SQL = `${PUBLIC_LESSON_SQL}
- ORDER BY s.updated_at_ms DESC, l.lesson_id DESC
- LIMIT ?1`;
+/**
+ * The newest FEED_PER_DOMAIN approved lessons of each domain (featured ones first), interleaved: every domain's
+ * first lesson, then every domain's second, and so on. The rank is computed per domain, so the cap never
+ * depends on what the other domains hold. Reads only the public columns (the window column `rn` is not selected
+ * by presentPublicLesson).
+ */
+const FEED_SQL = `
+SELECT lesson_id, domain, tool_name, changed_paths_json, display_title, display_summary, featured, updated_at_ms,
+       fix_arguments_json, steering_directive, statutory_anchor
+  FROM (
+    SELECT l.lesson_id, l.domain, l.tool_name, l.changed_paths_json,
+           s.display_title, s.display_summary, s.featured, s.updated_at_ms,
+           f.fix_arguments_json,
+           e.steering_directive, e.statutory_anchor,
+           ROW_NUMBER() OVER (PARTITION BY l.domain
+                              ORDER BY s.featured DESC, s.updated_at_ms DESC, l.lesson_id DESC) AS rn
+      FROM lesson_state s
+      JOIN lessons l     ON l.lesson_id = s.lesson_id
+      JOIN fixes f       ON f.allow_receipt_id = l.fix_event_id
+      JOIN trap_events e ON e.block_receipt_id = l.trap_event_id
+     WHERE s.review_status = 'approved' AND s.visibility = 'public')
+ WHERE rn <= ?1
+ ORDER BY rn, domain`;
 
 export function presentPublicLesson(row: FeedRow) {
   return {
@@ -137,7 +159,7 @@ export function createFeedRoutes(options: FeedOptions = {}) {
       }
     }
 
-    const rows = await c.env.DB.prepare(FEED_SQL).bind(FEED_LIMIT).all<FeedRow>();
+    const rows = await c.env.DB.prepare(FEED_SQL).bind(FEED_PER_DOMAIN).all<FeedRow>();
     const body = JSON.stringify(FeedResponse.parse({ success: true, lessons: rows.results.map(presentPublicLesson) }));
 
     if (cache) {

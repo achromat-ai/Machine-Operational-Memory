@@ -8,14 +8,18 @@ import { processLesson } from "../src/review/pipeline";
 import { decodeBase64url, toHex } from "../src/schema";
 import {
   AdminApiError,
+  BATCH_MAX,
   REVIEW_REASONS,
   agentKeyHex,
+  buildBatchPayload,
   buildReviewPayload,
+  describeBatch,
   describeReviewFailure,
   fetchPending,
   isOwnLesson,
   parsePendingPage,
   pendingPath,
+  submitBatch,
   submitReview,
   type PendingLesson,
 } from "../ui/src/lib/adminApi";
@@ -491,5 +495,83 @@ describe("the review queue against the real Worker", () => {
     expect(odd).toMatchObject({ code: "UNEXPECTED_RESPONSE" });
     const html = await fetchPending(async () => new Response("<html>", { status: 502 })).catch((e: unknown) => e);
     expect(html).toMatchObject({ code: "HTTP_ERROR", status: 502 });
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+describe("the review digest and batch decisions against the real Worker", () => {
+  it("reads coverage from the queue, submits one batch, and every lesson leaves the queue", async () => {
+    const world = await freshWorld();
+    const { session, edge } = await unlockedSession({ worker: world.worker });
+    const key = `field_${crypto.randomUUID().slice(0, 8)}`;
+    const make = async (field: string) =>
+      (await world.createLesson((await community()).agent, { trapArguments: { ...TRAP_ARGUMENTS, [field]: null }, fixArguments: { ...FIX_ARGUMENTS, [field]: "ops-lead" } })).lessonId;
+    const [a, b, c] = [await make(key), await make(key), await make(`other_${crypto.randomUUID().slice(0, 8)}`)];
+
+    const page = await fetchPending(fetcher(session), { limit: 50 });
+    expect(page.lessons.find((l) => l.lessonId === a)!.coverage).toEqual({ sameRuleClass: null, sameDelta: null });
+
+    const before = edge.requests.length;
+    const result = await submitBatch(
+      fetcher(session),
+      [
+        { lessonId: a, decision: "approve" },
+        { lessonId: b, decision: "reject", reasonCode: "duplicate", reasoning: "Same rule class as the first." },
+        { lessonId: c, decision: "approve" },
+      ],
+      "digest-test",
+    );
+    expect(edge.requests.length - before).toBe(1); // one signed request for three decisions
+    expect(result).toMatchObject({ batchId: "digest-test", applied: 3, failed: 0 });
+    expect(result.results.map((item) => [item.lessonId, item.ok])).toEqual([[a, true], [b, true], [c, true]]);
+    expect(describeBatch(result)).toBe("Batch done: 2 approved, 1 rejected.");
+    expect(world.store.records.get(a)!.metadata).toMatchObject({ visibility: "public", review_status: "approved" });
+    expect(world.store.records.has(b)).toBe(false);
+
+    const after = await fetchPending(fetcher(session), { limit: 50 });
+    for (const id of [a, b, c]) expect(after.lessons.some((l) => l.lessonId === id)).toBe(false);
+    const event = await env.DB.prepare("SELECT details_json FROM review_events WHERE lesson_id = ?1 AND actor_type = 'human'").bind(b).first<{ details_json: string }>();
+    expect(JSON.parse(event!.details_json)).toMatchObject({ batch_id: "digest-test", reasoning: "Same rule class as the first." });
+  });
+
+  it("reports refused items without stopping the rest, and the notice counts them", async () => {
+    const world = await freshWorld();
+    const { session, admin } = await unlockedSession({ worker: world.worker });
+    const good = (await world.createLesson((await community()).agent)).lessonId;
+    const own = await insertPair({ ownerKey: admin.key, kind: "community" });
+    await processLesson(env, world.deps, own.lessonId);
+    const result = await submitBatch(fetcher(session), [
+      { lessonId: "00000000-0000-4000-8000-000000000000", decision: "approve" },
+      { lessonId: own.lessonId, decision: "approve" },
+      { lessonId: good, decision: "approve" },
+    ]);
+    expect(result).toMatchObject({ batchId: null, applied: 1, failed: 2 });
+    expect(result.results.map((item) => (item.ok ? "ok" : item.code))).toEqual(["LESSON_NOT_FOUND", "SELF_REVIEW_FORBIDDEN", "ok"]);
+    expect(describeBatch(result)).toBe("Batch done: 1 approved, 0 rejected, 1 already decided or gone, 1 refused.");
+  });
+
+  it("refuses an empty, oversized or repeating batch before anything is sent", async () => {
+    const world = await freshWorld();
+    const { session, edge } = await unlockedSession({ worker: world.worker });
+    const id = "00000000-0000-4000-8000-000000000001";
+    const before = edge.requests.length;
+    await expect(submitBatch(fetcher(session), [])).rejects.toBeInstanceOf(RangeError);
+    await expect(submitBatch(fetcher(session), Array.from({ length: BATCH_MAX + 1 }, (_, i) => ({ lessonId: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, decision: "approve" as const })))).rejects.toBeInstanceOf(RangeError);
+    await expect(submitBatch(fetcher(session), [{ lessonId: id, decision: "approve" }, { lessonId: id, decision: "approve" }])).rejects.toBeInstanceOf(RangeError);
+    await expect(submitBatch(fetcher(session), [{ lessonId: id, decision: "reject" }])).rejects.toBeInstanceOf(RangeError);
+    expect(edge.requests).toHaveLength(before);
+    expect(buildBatchPayload([{ lessonId: id, decision: "approve" }], "x")).toEqual({ batch_id: "x", decisions: [{ lesson_id: id, decision: "approve" }] });
+  });
+
+  it("treats a malformed 200 as an unexpected answer", async () => {
+    const odd = await submitBatch(async () => new Response(JSON.stringify({ success: true }), { status: 200 }), [{ lessonId: "00000000-0000-4000-8000-000000000001", decision: "approve" }]).catch((e: unknown) => e);
+    expect(odd).toMatchObject({ code: "UNEXPECTED_RESPONSE" });
+  });
+
+  it("drops a whole set of lessons from the queue state at once", () => {
+    const lessons = ["a", "b", "c"].map((id) => ({ lessonId: id }) as unknown as PendingLesson);
+    const state = queueReducer({ ...initialQueueState, lessons, loaded: true }, { type: "removed-many", lessonIds: ["a", "c"], notice: "done" });
+    expect(state.lessons.map((l) => l.lessonId)).toEqual(["b"]);
+    expect(state.notice).toBe("done");
   });
 });

@@ -8,7 +8,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { processLesson } from "../src/review/pipeline";
 import { FEED_CACHE_VERSION } from "../src/routes/feed";
-import { FEED_LIMIT, FeedLessonResponse, FeedResponse } from "../src/schema";
+import { FEED_LIMIT, FEED_PER_DOMAIN, FeedLessonResponse, FeedResponse } from "../src/schema";
 import { FIX_ARGUMENTS, TRAP_ARGUMENTS, community, humanReview, insertPair, lessonState, uuid } from "./fixtures/ledger";
 import { freshWorld, type World } from "./fixtures/world";
 import { ORIGIN, call, freshIp } from "./helpers";
@@ -48,9 +48,9 @@ async function pendingLesson(world: World, ownerKey: string, over: Partial<Param
 /** Each approval gets its own millisecond, so updated_at_ms gives a strict order. */
 const tick = () => new Promise((resolve) => setTimeout(resolve, 3));
 
-async function approvedLesson(world: World, ownerKey: string) {
+async function approvedLesson(world: World, ownerKey: string, over: Partial<Parameters<typeof insertPair>[0]> = {}) {
   await tick();
-  const pair = await pendingLesson(world, ownerKey);
+  const pair = await pendingLesson(world, ownerKey, over);
   await humanReview(pair.lessonId, "approve");
   return pair;
 }
@@ -148,19 +148,19 @@ describe("GET /api/v1/feed", () => {
     for (const hidden of [waiting, rejected, quarantined, untriaged]) expect(ids, hidden.lessonId).not.toContain(hidden.lessonId);
   });
 
-  it("returns the most recently updated first, and at most 20", async () => {
+  it("returns the most recently updated first, and at most FEED_PER_DOMAIN of a domain", async () => {
     const world = await freshWorld({ feedCacheSeconds: 0 });
     const created: string[] = [];
     let owner = await community();
-    for (let i = 0; i < FEED_LIMIT + 1; i++) {
+    for (let i = 0; i < FEED_PER_DOMAIN + 1; i++) {
       // Triage quarantines a key's sixth lesson in an hour (burst check), so every fifth lesson gets a new key.
       if (i % 5 === 0) owner = await community();
       created.push((await approvedLesson(world, owner.key)).lessonId);
     }
 
     const lessons = await feedLessons(world);
-    expect(lessons).toHaveLength(FEED_LIMIT);
-    // The newest 20 of the 21 just approved, newest first; the first one approved has dropped off.
+    expect(lessons).toHaveLength(FEED_PER_DOMAIN);
+    // The newest 12 of the 13 just approved, newest first; the first one approved has dropped off.
     expect(lessons.map((item) => item.lesson_id)).toEqual(created.slice(1).reverse());
     const times = lessons.map((item) => Date.parse(item.updated_at));
     expect([...times].sort((a, b) => b - a)).toEqual(times);
@@ -301,11 +301,11 @@ describe("GET /api/v1/feed/<lesson_id>", () => {
     expect(body.lesson).toMatchObject({ lesson_id: pair.lessonId, domain: "fintech", tool: "transfer_funds", statutory_anchor: "FCA SYSC 6.1.1" });
   });
 
-  it("still serves a lesson that has dropped out of the newest 20 (the reason this route exists)", async () => {
+  it("still serves a lesson that has dropped out of its domain's newest 12 (the reason this route exists)", async () => {
     const world = await freshWorld({ feedCacheSeconds: 0 });
     const created: string[] = [];
     let owner = await community();
-    for (let i = 0; i < FEED_LIMIT + 1; i++) {
+    for (let i = 0; i < FEED_PER_DOMAIN + 1; i++) {
       if (i % 5 === 0) owner = await community();
       created.push((await approvedLesson(world, owner.key)).lessonId);
     }
@@ -424,5 +424,42 @@ describe("GET /api/v1/feed/<lesson_id>", () => {
       expect((await get(world, uuid(), { query: "?ref=audit" })).status).toBe(404);
       expect(world.analytics.points).toHaveLength(0);
     });
+  });
+});
+
+describe("GET /api/v1/feed: per-domain balance", () => {
+  // Last on purpose: the cases above share one D1 and some of them leave fintech lessons (one featured) behind.
+  it("never lets a domain seeded in bulk push the others out, and interleaves the domains", async () => {
+    const world = await freshWorld({ feedCacheSeconds: 0 });
+    const iot: string[] = [];
+    const devsecops: string[] = [];
+    let owner = await community();
+    // 14 newer industrial_iot lessons, approved after the fintech ones already in the ledger and after 2 devsecops ones.
+    for (let i = 0; i < 2; i++) devsecops.push((await approvedLesson(world, owner.key, { domain: "devsecops" })).lessonId);
+    owner = await community();
+    for (let i = 0; i < FEED_PER_DOMAIN + 2; i++) {
+      if (i % 5 === 0) owner = await community();
+      iot.push((await approvedLesson(world, owner.key, { domain: "industrial_iot" })).lessonId);
+    }
+    const lessons = await feedLessons(world);
+    const byDomain = (domain: string) => lessons.filter((item) => item.domain === domain);
+
+    // A fintech lesson from an earlier case is still there (it is not pushed out by 14 newer iot lessons).
+    expect(byDomain("fintech").length).toBeGreaterThan(0);
+    expect(byDomain("fintech").length).toBeLessThanOrEqual(FEED_PER_DOMAIN);
+    expect(byDomain("devsecops").map((item) => item.lesson_id)).toEqual([...devsecops].reverse());
+    // industrial_iot is capped at 12: the 2 oldest of the 14 are the ones left out.
+    expect(byDomain("industrial_iot").map((item) => item.lesson_id)).toEqual(iot.slice(2).reverse());
+    expect(lessons.length).toBeLessThanOrEqual(FEED_LIMIT);
+
+    // Interleaved: every domain's first lesson, then every domain's second, in domain order.
+    expect(lessons.slice(0, 6).map((item) => item.domain)).toEqual(["devsecops", "fintech", "industrial_iot", "devsecops", "fintech", "industrial_iot"]);
+    expect(lessons.slice(6).some((item) => item.domain === "devsecops")).toBe(false);
+  }, 90_000);
+
+  it("answers a response with no counts and no marker that more lessons exist", async () => {
+    const world = await freshWorld({ feedCacheSeconds: 0 });
+    const body = (await (await getFeed(world)).json()) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["lessons", "success"]);
   });
 });

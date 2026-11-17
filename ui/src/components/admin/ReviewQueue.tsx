@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
+  BATCH_MAX,
+  describeBatch,
   describeReviewFailure,
   fetchPending,
   isOwnLesson,
+  submitBatch,
   submitReview,
   type PendingLesson,
   type QueueStatus,
@@ -13,6 +16,7 @@ import type { AdminSession } from "../../lib/adminSession";
 import { initialQueueState, queueReducer } from "../../lib/queue";
 import DeltaCard from "../public/DeltaCard";
 import ReviewActions from "./ReviewActions";
+import ReviewDigest from "./ReviewDigest";
 
 const TABS: ReadonlyArray<{ status: QueueStatus; label: string }> = [
   { status: "pending_review", label: "Awaiting review" },
@@ -58,8 +62,9 @@ function Facts({ lesson }: { lesson: PendingLesson }) {
  * The pending queue. Each item shows the original trap beside the fix, with the fields the lesson changed
  * highlighted. Everything in an item is untrusted text from the community and is rendered as plain text.
  */
-export default function ReviewQueue({ session, agentKeyHex }: { session: AdminSession; agentKeyHex: string }) {
+export default function ReviewQueue({ session, agentKeyHex, initialView = "cards" }: { session: AdminSession; agentKeyHex: string; initialView?: "cards" | "digest" }) {
   const [state, dispatch] = useReducer(queueReducer, initialQueueState);
+  const [view, setView] = useState<"cards" | "digest">(initialView);
   const ticket = useRef(0);
 
   const failWith = useCallback(
@@ -105,8 +110,43 @@ export default function ReviewQueue({ session, agentKeyHex }: { session: AdminSe
     }
   }
 
+  /** Sends the digest's decisions as batches of at most BATCH_MAX, then drops every lesson that is no longer waiting. */
+  async function decideBatch(inputs: ReviewInput[]): Promise<void> {
+    const batchId = `digest-${new Date().toISOString().slice(0, 16).replace(/\D/g, "")}`;
+    const gone: string[] = [];
+    const notices: string[] = [];
+    for (let start = 0; start < inputs.length; start += BATCH_MAX) {
+      try {
+        const result = await submitBatch((path, options) => session.signedFetch(path, options), inputs.slice(start, start + BATCH_MAX), batchId);
+        for (const item of result.results) if (item.ok || item.status === 404 || item.status === 409) gone.push(item.lessonId);
+        notices.push(describeBatch(result));
+      } catch (error) {
+        const failure = describeReviewFailure(error);
+        failWith(failure);
+        notices.push(`${failure.message} The rest of the batch was not sent.`);
+        break;
+      }
+    }
+    dispatch({ type: "removed-many", lessonIds: gone, notice: notices.join(" ") });
+  }
+
   return (
     <div className="space-y-6">
+      <div role="group" aria-label="View" className="flex flex-wrap gap-2">
+        {(["cards", "digest"] as const).map((name) => (
+          <button
+            key={name}
+            type="button"
+            aria-pressed={view === name}
+            onClick={() => setView(name)}
+            className={`rounded-md border px-4 py-2 text-sm font-semibold focus:outline-2 focus:outline-offset-2 focus:outline-slate-900 ${
+              view === name ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            {name === "cards" ? "Cards" : "Digest"}
+          </button>
+        ))}
+      </div>
       <div role="tablist" aria-label="Queue" className="flex flex-wrap gap-2">
         {TABS.map((tab) => (
           <button
@@ -154,8 +194,18 @@ export default function ReviewQueue({ session, agentKeyHex }: { session: AdminSe
         <p className="rounded-lg border border-slate-200 bg-white px-5 py-6 text-sm text-slate-700">Nothing is waiting here.</p>
       ) : null}
 
+      {view === "digest" ? (
+        <ReviewDigest
+          lessons={state.lessons}
+          agentKeyHex={agentKeyHex}
+          onSubmit={decideBatch}
+          hasMore={state.nextCursor !== null}
+          loading={state.loading}
+          onLoadMore={() => void load(state.status, state.nextCursor)}
+        />
+      ) : null}
       <div className="space-y-6">
-        {state.lessons.map((lesson) => (
+        {(view === "cards" ? state.lessons : []).map((lesson) => (
           <DeltaCard
             key={lesson.lessonId}
             heading={lesson.violationRule}
@@ -189,7 +239,7 @@ export default function ReviewQueue({ session, agentKeyHex }: { session: AdminSe
         ))}
       </div>
 
-      {state.nextCursor ? (
+      {state.nextCursor && view === "cards" ? (
         <button
           type="button"
           disabled={state.loading}

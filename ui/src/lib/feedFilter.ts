@@ -1,4 +1,4 @@
-/** Client-side filtering of the loaded feed (the server sends at most the newest 20 lessons). Pure, no DOM. */
+/** Client-side filtering of the loaded feed (the server sends at most 12 lessons of each domain, newest first, so a text filter only searches those). Pure, no DOM. */
 import { DOMAIN_ORDER, domainLabel } from "./domains";
 import type { FeedLessonView } from "./feed";
 
@@ -32,7 +32,7 @@ export function filterLessons(lessons: readonly FeedLessonView[], filter: FeedFi
 
 /**
  * The domains present in `lessons`: the known ones in their usual order, then any others. Deliberately returns no
- * counts. The feed is only the newest slice of the lessons, so a number here would read as a size of the whole set.
+ * counts. The feed is only the newest slice of each domain's lessons, so a number here would read as a size of the whole set.
  */
 export function domainsPresent(lessons: readonly FeedLessonView[]): string[] {
   const present = new Set(lessons.map((lesson) => lesson.domain));

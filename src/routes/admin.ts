@@ -3,6 +3,8 @@
  *
  *   GET  /api/v1/admin/pending  the review queue: full trap/fix pair context for each lesson
  *   POST /api/v1/admin/review   approve, reject or quarantine (retract) one lesson
+ *   POST /api/v1/admin/review/batch  up to 25 explicit decisions in one signed request, each applied exactly as
+ *                               POST /review applies it, with ONE vector sync at the end
  *   POST /api/v1/admin/seed     write up to 10 receipt-verified BLOCK/ALLOW pairs as approved lessons
  *                               (src/review/seed.ts)
  *   GET  /api/v1/admin/telemetry  the activation funnel by ref over a trailing window (?window=24h|7d, default 7d),
@@ -37,6 +39,7 @@ import { SYNC_BATCH_LIMIT, syncVectors } from "../review/sync";
 import { assertPairingSecrets } from "../crypto/attestation";
 import { RAMEN_RECEIPT_KEYS } from "../crypto/ramen-key";
 import {
+  AdminBatchReviewRequest,
   AdminReviewRequest,
   SeedRequest,
   PendingQuery,
@@ -94,6 +97,8 @@ interface PendingRow {
   rejected_count: number;
   triage_json: string | null;
   corroborations: number;
+  covered_by_rule_class: string | null;
+  covered_by_delta: string | null;
 }
 
 interface TriageCheck {
@@ -115,7 +120,14 @@ SELECT l.lesson_id, l.domain, l.tool_name, l.violation_rule, l.provenance, l.sou
        (SELECT json_group_array(json_object('check', t.check_name, 'passed', t.passed,
                                             'score', t.score, 'details', json(t.details_json)))
           FROM triage_checks t WHERE t.lesson_id = l.lesson_id) AS triage_json,
-       (SELECT count(*) FROM lesson_corroborations c WHERE c.lesson_id = l.lesson_id) AS corroborations
+       (SELECT count(*) FROM lesson_corroborations c WHERE c.lesson_id = l.lesson_id) AS corroborations,
+       (SELECT x.lesson_id FROM lessons x JOIN lesson_state xs ON xs.lesson_id = x.lesson_id
+         WHERE xs.review_status = 'approved' AND x.domain = l.domain AND x.tool_name = l.tool_name
+           AND x.changed_paths_json = l.changed_paths_json AND x.lesson_id <> l.lesson_id
+         ORDER BY x.created_at_ms, x.lesson_id LIMIT 1) AS covered_by_rule_class,
+       (SELECT x.lesson_id FROM lessons x JOIN lesson_state xs ON xs.lesson_id = x.lesson_id
+         WHERE xs.review_status = 'approved' AND x.delta_hash = l.delta_hash AND x.lesson_id <> l.lesson_id
+         ORDER BY x.created_at_ms, x.lesson_id LIMIT 1) AS covered_by_delta
   FROM lesson_state s
   JOIN lessons l     ON l.lesson_id = s.lesson_id
   JOIN fixes f       ON f.allow_receipt_id = l.fix_event_id
@@ -170,6 +182,9 @@ function presentLesson(row: PendingRow) {
     fixed_by_key: row.fixed_by_key,
     fix_source: row.fix_source,
     corroborations: row.corroborations,
+    // An already-approved lesson with the same tool and the same set of changed paths (the same rule class), and
+    // one with the same delta hash. Both null means the lesson covers ground nothing approved covers yet.
+    coverage: { same_rule_class: row.covered_by_rule_class, same_delta: row.covered_by_delta },
     block_receipt_id: row.block_receipt_id,
     allow_receipt_id: row.allow_receipt_id,
     created_at: iso(row.created_at_ms),
@@ -182,6 +197,91 @@ interface ReviewTarget {
   source_agent_key: string;
   fixed_by_key: string | null;
   review_status: string;
+}
+
+type ReviewOutcome =
+  | { ok: true; reviewStatus: string | null; visibility: "public" | "none" }
+  | { ok: false; status: 403 | 404 | 409; code: string; message: string };
+
+/**
+ * One review decision: the four-eyes rule, the state check, then exactly ONE review_events row. The ledger
+ * triggers own everything else. Shared by POST /review and POST /review/batch so the two cannot drift apart.
+ * Expected refusals come back as { ok: false }; anything unexpected throws.
+ */
+async function reviewLesson(
+  env: Env,
+  reviewerKey: string,
+  body: AdminReviewRequest,
+  context: { requestBodySha256: string; requestNonce: string | null; batchId?: string | null },
+): Promise<ReviewOutcome> {
+  const target = await env.DB.prepare(
+    `SELECT l.provenance, l.source_agent_key, l.fixed_by_key, s.review_status
+       FROM lessons l JOIN lesson_state s ON s.lesson_id = l.lesson_id
+      WHERE l.lesson_id = ?1`,
+  )
+    .bind(body.lesson_id)
+    .first<ReviewTarget>();
+  if (target === null) return { ok: false, status: 404, code: "LESSON_NOT_FOUND", message: "lesson does not exist" };
+
+  // Four-eyes. Lessons are immutable, so this check cannot race. admin_seed lessons are exempt.
+  if (target.provenance !== "admin_seed" && (target.source_agent_key === reviewerKey || target.fixed_by_key === reviewerKey)) {
+    return { ok: false, status: 403, code: "SELF_REVIEW_FORBIDDEN", message: "a lesson cannot be reviewed by the key that submitted or fixed it" };
+  }
+  // approve and reject act on a lesson awaiting a decision. quarantine also retracts an approved lesson.
+  const reviewable =
+    body.decision === "quarantine"
+      ? target.review_status === "pending_review" || target.review_status === "approved"
+      : target.review_status === "pending_review" || target.review_status === "quarantined";
+  if (!reviewable) {
+    return {
+      ok: false,
+      status: 409,
+      code: "LESSON_NOT_REVIEWABLE",
+      message:
+        body.decision === "quarantine"
+          ? `lesson is ${target.review_status}; only a lesson in review or an approved lesson can be quarantined`
+          : `lesson is ${target.review_status}, not awaiting review`,
+    };
+  }
+
+  const details = {
+    ...(body.reasoning === undefined ? {} : { reasoning: body.reasoning }),
+    // Ties the append-only audit row to the exact signed request that caused it.
+    request_body_sha256: context.requestBodySha256,
+    request_nonce: context.requestNonce,
+    ...(context.batchId ? { batch_id: context.batchId } : {}),
+  };
+  try {
+    await env.DB.prepare(
+      `INSERT INTO review_events (event_id, lesson_id, actor_type, actor_id, action, reason_code, details_json, at_ms)
+       VALUES (?1, ?2, 'human', ?3, ?4, ?5, ?6, ?7)`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        body.lesson_id,
+        reviewerKey,
+        body.decision,
+        body.decision === "approve" ? null : body.reason_code,
+        JSON.stringify(details),
+        Date.now(),
+      )
+      .run();
+  } catch (error) {
+    // The ledger guard is authoritative: a concurrent reviewer got there first.
+    const text = error instanceof Error ? error.message : String(error);
+    if (
+      text.includes("approve and reject need a lesson in review or quarantine") ||
+      text.includes("lesson cannot be quarantined from its current state")
+    ) {
+      return { ok: false, status: 409, code: "LESSON_NOT_REVIEWABLE", message: "lesson is no longer awaiting review" };
+    }
+    throw error;
+  }
+
+  const state = await env.DB.prepare("SELECT review_status, visibility FROM lesson_state WHERE lesson_id = ?1")
+    .bind(body.lesson_id)
+    .first<{ review_status: string; visibility: string }>();
+  return { ok: true, reviewStatus: state?.review_status ?? null, visibility: state?.visibility === "public" ? "public" : "none" };
 }
 
 export function createAdminRoutes(options: AdminOptions) {
@@ -263,71 +363,11 @@ export function createAdminRoutes(options: AdminOptions) {
     }
     const body = parsed.data;
 
-    const target = await env.DB.prepare(
-      `SELECT l.provenance, l.source_agent_key, l.fixed_by_key, s.review_status
-         FROM lessons l JOIN lesson_state s ON s.lesson_id = l.lesson_id
-        WHERE l.lesson_id = ?1`,
-    )
-      .bind(body.lesson_id)
-      .first<ReviewTarget>();
-    if (target === null) return apiError(c, 404, "LESSON_NOT_FOUND", "lesson does not exist");
-
-    // Four-eyes. Lessons are immutable, so this check cannot race. admin_seed lessons are exempt.
-    if (target.provenance !== "admin_seed" && (target.source_agent_key === agent.agentKey || target.fixed_by_key === agent.agentKey)) {
-      return apiError(c, 403, "SELF_REVIEW_FORBIDDEN", "a lesson cannot be reviewed by the key that submitted or fixed it");
-    }
-    // approve and reject act on a lesson awaiting a decision. quarantine also retracts an approved lesson.
-    const reviewable =
-      body.decision === "quarantine"
-        ? target.review_status === "pending_review" || target.review_status === "approved"
-        : target.review_status === "pending_review" || target.review_status === "quarantined";
-    if (!reviewable) {
-      return apiError(
-        c,
-        409,
-        "LESSON_NOT_REVIEWABLE",
-        body.decision === "quarantine"
-          ? `lesson is ${target.review_status}; only a lesson in review or an approved lesson can be quarantined`
-          : `lesson is ${target.review_status}, not awaiting review`,
-      );
-    }
-
-    const details = {
-      ...(body.reasoning === undefined ? {} : { reasoning: body.reasoning }),
-      // Ties the append-only audit row to the exact signed request that caused it.
-      request_body_sha256: await sha256Hex(c.get("raw_body")),
-      request_nonce: c.req.header("achromat-nonce") ?? null,
-    };
-    try {
-      await env.DB.prepare(
-        `INSERT INTO review_events (event_id, lesson_id, actor_type, actor_id, action, reason_code, details_json, at_ms)
-         VALUES (?1, ?2, 'human', ?3, ?4, ?5, ?6, ?7)`,
-      )
-        .bind(
-          crypto.randomUUID(),
-          body.lesson_id,
-          agent.agentKey,
-          body.decision,
-          body.decision === "approve" ? null : body.reason_code,
-          JSON.stringify(details),
-          Date.now(),
-        )
-        .run();
-    } catch (error) {
-      // The ledger guard is authoritative: a concurrent reviewer got there first.
-      const text = error instanceof Error ? error.message : String(error);
-      if (
-        text.includes("approve and reject need a lesson in review or quarantine") ||
-        text.includes("lesson cannot be quarantined from its current state")
-      ) {
-        return apiError(c, 409, "LESSON_NOT_REVIEWABLE", "lesson is no longer awaiting review");
-      }
-      throw error;
-    }
-
-    const state = await env.DB.prepare("SELECT review_status, visibility FROM lesson_state WHERE lesson_id = ?1")
-      .bind(body.lesson_id)
-      .first<{ review_status: string; visibility: string }>();
+    const outcome = await reviewLesson(env, agent.agentKey, body, {
+      requestBodySha256: await sha256Hex(c.get("raw_body")),
+      requestNonce: c.req.header("achromat-nonce") ?? null,
+    });
+    if (!outcome.ok) return apiError(c, outcome.status, outcome.code, outcome.message);
 
     // Approve: upsert with visibility 'public' (replaces the `k:` vector). Reject: delete the vector.
     const sync = syncVectors(env, options.search(env), { lessonId: body.lesson_id }).catch((error) =>
@@ -343,9 +383,72 @@ export function createAdminRoutes(options: AdminOptions) {
       success: true,
       lesson_id: body.lesson_id,
       decision: body.decision,
-      review_status: state?.review_status ?? null,
-      visibility: state?.visibility === "public" ? "public" : "none",
+      review_status: outcome.reviewStatus,
+      visibility: outcome.visibility,
       vector_sync: "scheduled",
+    });
+  });
+
+  /**
+   * A batch of explicit decisions. Each is applied by the same reviewLesson() as POST /review, in order, and one
+   * failing item (not found, self-review, already decided) never stops the others: the answer lists every item.
+   * The vector sync runs once at the end, not once per lesson. The request is one signed request against the
+   * hourly admin budget, and its body hash and batch_id are written into every decision's audit row.
+   */
+  admin.post("/review/batch", async (c) => {
+    const env = c.env;
+    const agent = c.get("agent");
+
+    const parsed = AdminBatchReviewRequest.safeParse(parseJsonBytes(c.get("raw_body")));
+    if (!parsed.success) {
+      const failure = toValidationFailure(parsed.error);
+      return apiError(c, 400, failure.code, "batch body is invalid", failure.details);
+    }
+    const { batch_id: batchId, decisions } = parsed.data;
+    const context = {
+      requestBodySha256: await sha256Hex(c.get("raw_body")),
+      requestNonce: c.req.header("achromat-nonce") ?? null,
+      batchId: batchId ?? null,
+    };
+
+    const results: Array<
+      | { lesson_id: string; decision: string; ok: true; review_status: string | null; visibility: "public" | "none" }
+      | { lesson_id: string; decision: string; ok: false; status: number; code: string; error: string }
+    > = [];
+    for (const decision of decisions) {
+      try {
+        const outcome = await reviewLesson(env, agent.agentKey, decision, context);
+        results.push(
+          outcome.ok
+            ? { lesson_id: decision.lesson_id, decision: decision.decision, ok: true, review_status: outcome.reviewStatus, visibility: outcome.visibility }
+            : { lesson_id: decision.lesson_id, decision: decision.decision, ok: false, status: outcome.status, code: outcome.code, error: outcome.message },
+        );
+      } catch (error) {
+        console.error("achromat-mom batch review failed", error instanceof Error ? error.message : error);
+        results.push({ lesson_id: decision.lesson_id, decision: decision.decision, ok: false, status: 500, code: "INTERNAL_ERROR", error: "the decision could not be recorded" });
+      }
+    }
+
+    const applied = results.filter((result) => result.ok).length;
+    if (applied > 0) {
+      const sync = syncVectors(env, options.search(env), { limit: SYNC_BATCH_LIMIT }).catch((error) =>
+        console.error("achromat-mom batch review vector sync failed", error instanceof Error ? error.message : error),
+      );
+      try {
+        c.executionCtx.waitUntil(sync);
+      } catch {
+        // No execution context (direct unit-test calls): the promise still runs.
+      }
+    }
+
+    return c.json({
+      success: true,
+      batch_id: batchId ?? null,
+      requested: decisions.length,
+      applied,
+      failed: decisions.length - applied,
+      results,
+      vector_sync: applied > 0 ? "scheduled" : "none",
     });
   });
 

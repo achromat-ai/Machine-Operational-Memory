@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_LIMIT_PER_AGENT_PER_HOUR, adminUsageKey } from "../src/routes/admin";
 import { BOUNTY_LIMIT_PER_AGENT_PER_HOUR, bountyUsageKey } from "../src/routes/bounties";
 import { processLesson } from "../src/review/pipeline";
-import { encodeBase64url, sha256Hex } from "../src/schema";
+import { REVIEW_BATCH_MAX, encodeBase64url, sha256Hex } from "../src/schema";
 import { consumeUsage } from "../src/usage";
 import {
   FIX_ARGUMENTS,
@@ -24,12 +24,14 @@ import {
   pauseAutoApprove,
   provisionAgent,
   reviewActions,
+  uuid,
 } from "./fixtures/ledger";
 import { ANALYTICS_URL, TEST_ANALYTICS_TOKEN, mockCloudflareAnalytics, type CfRows } from "./fixtures/cf-analytics";
 import { freshWorld, type World } from "./fixtures/world";
 import { ORIGIN, call, freshIp, signatureHeaders, type TestAgent } from "./helpers";
 
 const REVIEW = "/api/v1/admin/review";
+const REVIEW_BATCH = "/api/v1/admin/review/batch";
 const PENDING = "/api/v1/admin/pending";
 const TELEMETRY = "/api/v1/admin/telemetry";
 const BOUNTIES = "/api/v1/bounties";
@@ -727,6 +729,221 @@ describe("four-eyes rule", () => {
     expect(result.json).toMatchObject({ review_status: "approved", visibility: "public" });
     expect((await humanEvents(lessonId))[0]).toMatchObject({ actor_id: admin.key, action: "approve" });
     expect(world.store.records.get(lessonId)!.metadata.visibility).toBe("public");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// POST /api/v1/admin/review/batch
+// ════════════════════════════════════════════════════════════════════════
+
+describe("POST /api/v1/admin/review/batch", () => {
+  /** Three pending lessons, each from its own community key. */
+  async function pendingThree(world: World) {
+    const first = await pendingLesson(world);
+    const second = await pendingLesson(world);
+    const third = await pendingLesson(world);
+    return [first, second, third] as const;
+  }
+
+  it("applies each decision exactly as POST /review does, tags every audit row with the batch, and syncs vectors once", async () => {
+    const world = await freshWorld();
+    const admin = await provisionAgent("admin");
+    const [a, b, c] = await pendingThree(world);
+    world.store.upsertCalls.length = 0;
+    world.store.deleteCalls.length = 0;
+
+    const payload = {
+      batch_id: "fintech-2026-11-18a",
+      decisions: [
+        { lesson_id: a.lessonId, decision: "approve", reasoning: "Clear delta." },
+        { lesson_id: b.lessonId, decision: "approve" },
+        { lesson_id: c.lessonId, decision: "reject", reason_code: "duplicate", reasoning: "Covered by an approved lesson." },
+      ],
+    };
+    const result = await api(world, admin.agent, REVIEW_BATCH, { payload });
+    expect(result.status).toBe(200);
+    expect(result.response.headers.get("Cache-Control")).toBe("no-store");
+    expect(result.json).toEqual({
+      success: true,
+      batch_id: "fintech-2026-11-18a",
+      requested: 3,
+      applied: 3,
+      failed: 0,
+      results: [
+        { lesson_id: a.lessonId, decision: "approve", ok: true, review_status: "approved", visibility: "public" },
+        { lesson_id: b.lessonId, decision: "approve", ok: true, review_status: "approved", visibility: "public" },
+        { lesson_id: c.lessonId, decision: "reject", ok: true, review_status: "rejected", visibility: "none" },
+      ],
+      vector_sync: "scheduled",
+    });
+
+    // One human review_event per lesson, every one tied to the whole signed request and the batch label.
+    const bodyHash = await sha256Hex(JSON.stringify(payload));
+    for (const [pair, action, reason] of [[a, "approve", null], [b, "approve", null], [c, "reject", "duplicate"]] as const) {
+      const events = await humanEvents(pair.lessonId);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ actor_id: admin.key, action, reason_code: reason });
+      expect(JSON.parse(events[0]!.details_json)).toMatchObject({ batch_id: "fintech-2026-11-18a", request_body_sha256: bodyHash });
+    }
+    expect(await counts(a.owner.key)).toEqual({ approved_count: 1, rejected_count: 0 });
+    expect(await counts(c.owner.key)).toEqual({ approved_count: 0, rejected_count: 1 });
+
+    // ONE sync for the whole batch: one upsert call carrying both approvals, one delete call for the rejection.
+    expect(world.store.upsertCalls).toHaveLength(1);
+    expect(world.store.upsertCalls[0]!.map((record) => record.id).sort()).toEqual([a.lessonId, b.lessonId].sort());
+    expect(world.store.deleteCalls).toEqual([[c.lessonId]]);
+    expect(await lessonState(a.lessonId)).toMatchObject({ review_status: "approved", visibility: "public", desired: 2, synced: 2 });
+    expect(await lessonState(c.lessonId)).toMatchObject({ review_status: "rejected", visibility: "none", desired: 2, synced: 2 });
+  });
+
+  it("applies the good items and reports the rest per item: not found, self-review, already decided", async () => {
+    const world = await freshWorld();
+    const admin = await provisionAgent("admin");
+    const [good, decided] = [await pendingLesson(world), await pendingLesson(world)];
+    await api(world, admin.agent, REVIEW, { payload: { lesson_id: decided.lessonId, decision: "reject", reason_code: "low_quality" } });
+    const own = await insertPair({ ownerKey: admin.key, kind: "community" });
+    await processLesson(env, world.deps, own.lessonId);
+    const missing = "00000000-0000-4000-8000-000000000000";
+
+    const result = await api(world, admin.agent, REVIEW_BATCH, {
+      payload: {
+        decisions: [
+          { lesson_id: missing, decision: "approve" },
+          { lesson_id: own.lessonId, decision: "approve" },
+          { lesson_id: decided.lessonId, decision: "approve" },
+          { lesson_id: good.lessonId, decision: "approve" },
+        ],
+      },
+    });
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({ success: true, batch_id: null, requested: 4, applied: 1, failed: 3, vector_sync: "scheduled" });
+    expect(result.json.results).toEqual([
+      { lesson_id: missing, decision: "approve", ok: false, status: 404, code: "LESSON_NOT_FOUND", error: "lesson does not exist" },
+      { lesson_id: own.lessonId, decision: "approve", ok: false, status: 403, code: "SELF_REVIEW_FORBIDDEN", error: expect.any(String) },
+      { lesson_id: decided.lessonId, decision: "approve", ok: false, status: 409, code: "LESSON_NOT_REVIEWABLE", error: expect.any(String) },
+      { lesson_id: good.lessonId, decision: "approve", ok: true, review_status: "approved", visibility: "public" },
+    ]);
+    // Nothing was written for the refused items; a batch with no label stores none.
+    expect(await humanEvents(own.lessonId)).toEqual([]);
+    expect((await lessonState(decided.lessonId))!.review_status).toBe("rejected");
+    expect(JSON.parse((await humanEvents(good.lessonId))[0]!.details_json)).not.toHaveProperty("batch_id");
+  });
+
+  it("does no sync when nothing was applied", async () => {
+    const world = await freshWorld();
+    const admin = await provisionAgent("admin");
+    world.store.upsertCalls.length = 0;
+    const result = await api(world, admin.agent, REVIEW_BATCH, { payload: { decisions: [{ lesson_id: "00000000-0000-4000-8000-000000000000", decision: "approve" }] } });
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({ applied: 0, failed: 1, vector_sync: "none" });
+    expect(world.store.upsertCalls).toHaveLength(0);
+  });
+
+  it("accepts REVIEW_BATCH_MAX decisions and refuses one more", async () => {
+    const world = await freshWorld();
+    const admin = await provisionAgent("admin");
+    const ids = Array.from({ length: REVIEW_BATCH_MAX + 1 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+    const ok = await api(world, admin.agent, REVIEW_BATCH, { payload: { decisions: ids.slice(0, REVIEW_BATCH_MAX).map((lesson_id) => ({ lesson_id, decision: "approve" })) } });
+    expect(ok.status).toBe(200);
+    expect(ok.json).toMatchObject({ requested: REVIEW_BATCH_MAX, applied: 0, failed: REVIEW_BATCH_MAX });
+    const tooMany = await api(world, admin.agent, REVIEW_BATCH, { payload: { decisions: ids.map((lesson_id) => ({ lesson_id, decision: "approve" })) } });
+    expect(tooMany.status).toBe(400);
+  });
+
+  it("rejects malformed batches with 400 and writes nothing", async () => {
+    const world = await freshWorld();
+    const admin = await provisionAgent("admin");
+    const { lessonId } = await pendingLesson(world);
+    const approve = { lesson_id: lessonId, decision: "approve" };
+    const bodies: Array<[string, unknown]> = [
+      ["no decisions", { decisions: [] }],
+      ["decisions missing", { batch_id: "x" }],
+      ["not an object", [approve]],
+      ["the same lesson twice", { decisions: [approve, { lesson_id: lessonId, decision: "reject", reason_code: "low_quality" }] }],
+      ["reject without reason_code", { decisions: [{ lesson_id: lessonId, decision: "reject" }] }],
+      ["one bad item among good ones", { decisions: [approve, { lesson_id: "not-a-uuid", decision: "approve" }] }],
+      ["unknown field", { decisions: [approve], approve_all: true }],
+      ["a wildcard instead of ids", { decisions: [{ lesson_id: "*", decision: "approve" }] }],
+      ["bad batch_id", { batch_id: "has spaces", decisions: [approve] }],
+      ["empty batch_id", { batch_id: "", decisions: [approve] }],
+      ["long batch_id", { batch_id: "a".repeat(65), decisions: [approve] }],
+    ];
+    for (const [name, payload] of bodies) {
+      const result = await api(world, admin.agent, REVIEW_BATCH, { payload });
+      expect(result.status, name).toBe(400);
+      expect(result.json, name).toMatchObject({ success: false });
+    }
+    expect(await humanEvents(lessonId)).toEqual([]);
+    expect((await lessonState(lessonId))!.review_status).toBe("pending_review");
+  });
+
+  it("is admin only: 401 unsigned, 403 for community, internal and platform keys, and nothing is written", async () => {
+    const world = await freshWorld();
+    const { lessonId } = await pendingLesson(world);
+    const payload = { decisions: [{ lesson_id: lessonId, decision: "approve" }] };
+    expect((await call(REVIEW_BATCH, { method: "POST", body: JSON.stringify(payload) })).status).toBe(401);
+    for (const agent of [(await community()).agent, (await provisionAgent("internal")).agent, (await provisionAgent("platform")).agent]) {
+      expect((await api(world, agent, REVIEW_BATCH, { payload })).status).toBe(403);
+    }
+    expect(await humanEvents(lessonId)).toEqual([]);
+  });
+
+  it("leaves every decision in D1 when Vectorize is down, and the cron finishes the one sync", async () => {
+    const world = await freshWorld();
+    const admin = await provisionAgent("admin");
+    const [a, b] = [await pendingLesson(world), await pendingLesson(world)];
+    world.store.failUpsert = true;
+    const result = await api(world, admin.agent, REVIEW_BATCH, { payload: { decisions: [a, b].map((pair) => ({ lesson_id: pair.lessonId, decision: "approve" })) } });
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({ applied: 2, failed: 0 });
+    expect(await lessonState(a.lessonId)).toMatchObject({ review_status: "approved", desired: 2, synced: 1 });
+    world.store.failUpsert = false;
+    await world.runCron();
+    for (const pair of [a, b]) {
+      expect(await lessonState(pair.lessonId)).toMatchObject({ desired: 2, synced: 2 });
+      expect(world.store.records.get(pair.lessonId)!.metadata).toMatchObject({ visibility: "public", review_status: "approved" });
+    }
+  });
+
+  it("counts as one request against the hourly admin budget", async () => {
+    const world = await freshWorld();
+    const admin = await provisionAgent("admin");
+    const lessons = await pendingThree(world);
+    const used = async () => (await consumeUsage(env, adminUsageKey(admin.key), ADMIN_LIMIT_PER_AGENT_PER_HOUR)).remaining;
+    const before = await used();
+    await api(world, admin.agent, REVIEW_BATCH, { payload: { decisions: lessons.map((pair) => ({ lesson_id: pair.lessonId, decision: "approve" })) } });
+    // The probe above and this request each spent one unit: the three decisions together spent exactly one.
+    expect(before - (await used())).toBe(2);
+  });
+});
+
+describe("GET /api/v1/admin/pending: coverage", () => {
+  it("names an approved lesson with the same tool and changed paths, and one with the same delta; null when nothing covers it", async () => {
+    const world = await freshWorld();
+    const admin = await provisionAgent("admin");
+    // The ledger is shared by every case in this file, so the argument keys are unique to this one.
+    const key = `field_${uuid().slice(0, 8)}`;
+    const lessonWith = async (field: string) => {
+      const owner = await community();
+      const { lessonId } = await world.createLesson(owner.agent, {
+        trapArguments: { ...TRAP_ARGUMENTS, [field]: null },
+        fixArguments: { ...FIX_ARGUMENTS, [field]: "ops-lead" },
+      });
+      return { lessonId };
+    };
+    const first = await lessonWith(key);
+    const second = await lessonWith(key);
+    const { lessonId: different } = await lessonWith(`other_${uuid().slice(0, 8)}`);
+    expect((await lessonState(different))!.review_status).toBe("pending_review");
+
+    const before = (await walk(world, admin.agent, PENDING)).find((item) => item.lesson_id === second.lessonId);
+    expect(before.coverage).toEqual({ same_rule_class: null, same_delta: null });
+
+    expect((await api(world, admin.agent, REVIEW, { payload: { lesson_id: first.lessonId, decision: "approve" } })).status).toBe(200);
+    const queue = await walk(world, admin.agent, PENDING);
+    expect(queue.find((item) => item.lesson_id === second.lessonId).coverage).toEqual({ same_rule_class: first.lessonId, same_delta: first.lessonId });
+    expect(queue.find((item) => item.lesson_id === different).coverage).toEqual({ same_rule_class: null, same_delta: null });
+    expect(queue.some((item) => item.lesson_id === first.lessonId)).toBe(false);
   });
 });
 

@@ -51,6 +51,8 @@ export interface PendingLesson {
   submitterRejected: number;
   fixedByKey: string | null;
   corroborations: number;
+  /** Approved lessons that already cover this one: the same tool and changed paths, and the same delta. Null when none does. */
+  coverage: { sameRuleClass: string | null; sameDelta: string | null };
   createdAt: string;
 }
 
@@ -64,6 +66,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** An older server sends no coverage: that reads as "nothing covers it". */
+function parseCoverage(raw: unknown): PendingLesson["coverage"] {
+  const record = isRecord(raw) ? raw : {};
+  return {
+    sameRuleClass: typeof record.same_rule_class === "string" ? record.same_rule_class : null,
+    sameDelta: typeof record.same_delta === "string" ? record.same_delta : null,
+  };
+}
 function parseLesson(raw: unknown): PendingLesson | null {
   if (!isRecord(raw) || !isRecord(raw.submitter)) return null;
   const submitter = raw.submitter;
@@ -115,6 +125,7 @@ function parseLesson(raw: unknown): PendingLesson | null {
     submitterRejected: submitter.rejected_count,
     fixedByKey: typeof raw.fixed_by_key === "string" ? raw.fixed_by_key : null,
     corroborations: typeof raw.corroborations === "number" ? raw.corroborations : 0,
+    coverage: parseCoverage(raw.coverage),
     createdAt: raw.created_at,
   };
 }
@@ -245,6 +256,72 @@ export async function submitReview(fetcher: AdminFetcher, input: ReviewInput): P
   return { lessonId: input.lessonId, decision: input.decision, reviewStatus: body.review_status };
 }
 
+/** Most decisions one batch may carry (REVIEW_BATCH_MAX in src/schema.ts). */
+export const BATCH_MAX = 25;
+export type BatchItemResult =
+  | { lessonId: string; decision: string; ok: true; reviewStatus: string }
+  | { lessonId: string; decision: string; ok: false; status: number; code: string; message: string };
+export interface BatchResult {
+  batchId: string | null;
+  applied: number;
+  failed: number;
+  results: BatchItemResult[];
+}
+/** The request body for POST /api/v1/admin/review/batch. Throws RangeError for an empty, oversized or invalid batch. */
+export function buildBatchPayload(inputs: readonly ReviewInput[], batchId?: string): Record<string, unknown> {
+  if (inputs.length === 0) throw new RangeError("Choose at least one decision.");
+  if (inputs.length > BATCH_MAX) throw new RangeError(`A batch holds at most ${BATCH_MAX} decisions.`);
+  if (new Set(inputs.map((input) => input.lessonId)).size !== inputs.length) throw new RangeError("A lesson can appear only once in a batch.");
+  return { ...(batchId ? { batch_id: batchId } : {}), decisions: inputs.map(buildReviewPayload) };
+}
+/** POST /api/v1/admin/review/batch. A 200 carries one result per decision, refused ones included. */
+export async function submitBatch(fetcher: AdminFetcher, inputs: readonly ReviewInput[], batchId?: string): Promise<BatchResult> {
+  const response = await fetcher("/api/v1/admin/review/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildBatchPayload(inputs, batchId)),
+  });
+  if (response.status !== 200) throw await failure(response);
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  if (!isRecord(body) || body.success !== true || !Array.isArray(body.results) || typeof body.applied !== "number" || typeof body.failed !== "number") {
+    throw new AdminApiError("UNEXPECTED_RESPONSE", 200, "The service sent an unexpected answer.");
+  }
+  const results: BatchItemResult[] = [];
+  for (const item of body.results) {
+    if (!isRecord(item) || typeof item.lesson_id !== "string" || typeof item.decision !== "string") {
+      throw new AdminApiError("UNEXPECTED_RESPONSE", 200, "The service sent an unexpected answer.");
+    }
+    if (item.ok === true && typeof item.review_status === "string") {
+      results.push({ lessonId: item.lesson_id, decision: item.decision, ok: true, reviewStatus: item.review_status });
+    } else if (item.ok === false && typeof item.status === "number" && typeof item.code === "string") {
+      results.push({ lessonId: item.lesson_id, decision: item.decision, ok: false, status: item.status, code: item.code, message: typeof item.error === "string" ? item.error : "" });
+    } else {
+      throw new AdminApiError("UNEXPECTED_RESPONSE", 200, "The service sent an unexpected answer.");
+    }
+  }
+  return { batchId: typeof body.batch_id === "string" ? body.batch_id : null, applied: body.applied, failed: body.failed, results };
+}
+/**
+ * One calm sentence for the notice after a batch: what was applied and what was not. Lessons the service says are
+ * gone or already decided are counted as "already decided"; refused ones (your own lessons, errors) are counted apart.
+ */
+export function describeBatch(result: BatchResult): string {
+  const applied = result.results.filter((item) => item.ok);
+  const approved = applied.filter((item) => item.decision === "approve").length;
+  const rejected = applied.filter((item) => item.decision === "reject").length;
+  const stale = result.results.filter((item) => !item.ok && (item.status === 404 || item.status === 409)).length;
+  const refused = result.results.filter((item) => !item.ok && item.status !== 404 && item.status !== 409).length;
+  const parts = [`${approved} approved`, `${rejected} rejected`];
+  if (applied.length - approved - rejected > 0) parts.push(`${applied.length - approved - rejected} retracted`);
+  if (stale > 0) parts.push(`${stale} already decided or gone`);
+  if (refused > 0) parts.push(`${refused} refused`);
+  return `Batch done: ${parts.join(", ")}.`;
+}
 export interface ReviewFailureView {
   code: string;
   message: string;

@@ -11,6 +11,7 @@
  * callers never reach the JSON parser.
  */
 import { z } from "zod";
+import { DOMAIN_BUNDLES } from "./config/domains";
 
 // ════════════════════════════════════════════════════════════════════════
 // Limits
@@ -559,8 +560,10 @@ export type RecallResponse = z.output<typeof RecallResponse>;
 // GET /api/v1/feed response (public, unsigned; strict for the same reason as RecallLesson)
 // ════════════════════════════════════════════════════════════════════════
 
-/** The most lessons one feed response carries. There is no pagination. */
-export const FEED_LIMIT = 20;
+/** The most lessons the feed carries for any one domain, so a domain seeded in bulk cannot push the others out. */
+export const FEED_PER_DOMAIN = 12;
+/** The most lessons one feed response carries: FEED_PER_DOMAIN for each served domain. There is no pagination. */
+export const FEED_LIMIT = FEED_PER_DOMAIN * Object.keys(DOMAIN_BUNDLES).length;
 
 /**
  * One approved lesson in the public feed: the recall lesson without its receipts and attestation, plus the
@@ -739,6 +742,39 @@ export const AdminReviewRequest = z.discriminatedUnion("decision", [
   }),
 ]);
 export type AdminReviewRequest = z.output<typeof AdminReviewRequest>;
+
+/** Most decisions one POST /api/v1/admin/review/batch may carry. */
+export const REVIEW_BATCH_MAX = 25;
+
+/** A free label the operator gives a batch ("iot-2026-11-18a"). It is stored with every decision's audit row. */
+export const BatchLabel = z
+  .string()
+  .min(1, "batch_id must not be empty")
+  .max(64, "batch_id must be at most 64 characters")
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "batch_id may only hold letters, digits and . _ : -");
+
+/**
+ * POST /api/v1/admin/review/batch: up to REVIEW_BATCH_MAX explicit decisions, each exactly the body of
+ * POST /api/v1/admin/review. There is no "all pending" wildcard: a lesson that reaches the queue after the
+ * operator read it cannot be swept into the batch, and the same lesson twice is a 400.
+ */
+export const AdminBatchReviewRequest = z
+  .strictObject({
+    batch_id: BatchLabel.optional(),
+    decisions: z
+      .array(AdminReviewRequest)
+      .min(1, "send at least one decision")
+      .max(REVIEW_BATCH_MAX, `send at most ${REVIEW_BATCH_MAX} decisions per request`),
+  })
+  .superRefine((value, context) => {
+    const seen = new Set<string>();
+    for (const [index, decision] of value.decisions.entries()) {
+      const id = decision.lesson_id.toLowerCase();
+      if (seen.has(id)) context.addIssue({ code: "custom", path: ["decisions", index, "lesson_id"], message: "each lesson may appear once per batch" });
+      seen.add(id);
+    }
+  });
+export type AdminBatchReviewRequest = z.output<typeof AdminBatchReviewRequest>;
 
 // ════════════════════════════════════════════════════════════════════════
 // POST /api/v1/admin/seed (admin only)

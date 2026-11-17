@@ -187,6 +187,8 @@ export interface PairOptions {
   violationRule?: string;
   trapArguments?: Record<string, unknown>;
   fixArguments?: Record<string, unknown>;
+  /** Defaults to DOMAIN (fintech). */
+  domain?: string;
 }
 
 export interface InsertedPair {
@@ -236,6 +238,7 @@ export async function insertPair(options: PairOptions): Promise<InsertedPair> {
     trapArguments,
     violationRule,
     ageMs: bounty ? 90_000_000 : 0,
+    ...(options.domain === undefined ? {} : { domain: options.domain }),
   });
 
   if (bounty) {
@@ -266,7 +269,7 @@ export async function insertPair(options: PairOptions): Promise<InsertedPair> {
       trapId,
       bounty ? "internal_bounty" : seed ? "admin_seed" : "community",
       fixerKey,
-      DOMAIN,
+      options.domain ?? DOMAIN,
       TOOL,
       fingerprint,
       description,
@@ -290,7 +293,7 @@ export async function insertPair(options: PairOptions): Promise<InsertedPair> {
       trapId,
       blockId,
       allowId,
-      DOMAIN,
+      options.domain ?? DOMAIN,
       TOOL,
       fingerprint,
       violationRule,

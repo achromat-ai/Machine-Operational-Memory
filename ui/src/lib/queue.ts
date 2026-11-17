@@ -30,6 +30,7 @@ export type QueueAction =
   | { type: "load-success"; lessons: PendingLesson[]; nextCursor: string | null; append: boolean }
   | { type: "load-failure"; message: string }
   | { type: "removed"; lessonId: string; notice: string }
+  | { type: "removed-many"; lessonIds: readonly string[]; notice: string }
   | { type: "dismiss-notice" };
 
 export function queueReducer(state: QueueState, action: QueueAction): QueueState {
@@ -55,6 +56,10 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
       return { ...state, loading: false, error: action.message };
     case "removed":
       return { ...state, lessons: state.lessons.filter((lesson) => lesson.lessonId !== action.lessonId), notice: action.notice };
+    case "removed-many": {
+      const gone = new Set(action.lessonIds);
+      return { ...state, lessons: state.lessons.filter((lesson) => !gone.has(lesson.lessonId)), notice: action.notice };
+    }
     case "dismiss-notice":
       return state.notice === null ? state : { ...state, notice: null };
   }
