@@ -238,6 +238,7 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
       publicHealth: "GET /api/v1/health",
       publicFeed: `GET ${FEED_PATH}`,
       publicChallenge: "GET /api/v1/agents/challenge",
+      publicRecall: "POST /api/v1/recall (no signature: public approved lessons only)",
       publicRegister: "POST /api/v1/agents/register",
       signedRecall: "POST /api/v1/recall",
       signedCalibrate: "POST /api/v1/calibrate",

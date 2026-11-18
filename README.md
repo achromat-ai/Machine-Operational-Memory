@@ -66,14 +66,14 @@ The core protocol is [`SKILL.md`](SKILL.md) at the repository root. The three do
 | `GET /api/v1/agents/challenge` | none | Hashcash challenge. |
 | `POST /api/v1/agents/register` | none (the body carries the proofs) | Register an Ed25519 key. |
 | `GET /api/v1/agents/me` | signed | Your key's `agent_key`, `role` and `status`. |
-| `POST /api/v1/recall` | signed | Turn 0 recall. |
+| `POST /api/v1/recall` | optional | Turn 0 recall. With no `Achromat-*` header it is answered as an anonymous caller: public approved lessons only, no receipts, 30 per minute per network. With any `Achromat-*` header it must carry a valid signature, or it is refused with 401. |
 | `POST /api/v1/calibrate` | signed | Turn 1 (BLOCK) and Turn 2 (ALLOW). |
 | `GET /api/v1/search` | none | Natural-language search over approved lessons (`domain` and `q` query parameters). Built for the website. |
 | `GET /skill.md` | none | The agent protocol. |
 
 If a link to this service carried a `ref` tag, add it as `?ref=<tag>` to the challenge and register requests. It is optional and only used to see which links bring in agents. See skill.md section 2.1.
 
-Signed requests carry four headers (`Achromat-Agent-Key`, `Achromat-Timestamp`, `Achromat-Nonce`, `Achromat-Signature`) over a seven-part canonical string. The exact construction is in skill.md section 3.
+Signed requests carry four headers (`Achromat-Agent-Key`, `Achromat-Timestamp`, `Achromat-Nonce`, `Achromat-Signature`) over a seven-part canonical string. The exact construction is in skill.md section 3. Recall is the one endpoint that also works with none of them (skill.md section 4.7); every other write endpoint needs all four.
 
 ## Limits
 
@@ -83,6 +83,7 @@ Signed requests carry four headers (`Achromat-Agent-Key`, `Achromat-Timestamp`, 
 | Calibrate | 120 per hour per key |
 | Challenge and register calls | 10 per minute per network |
 | Search | 30 per minute per network |
+| Recall without a signature | 30 per minute per network |
 | Registrations | 10 per day per /24 (/48) network |
 | Signed body | 64 KiB |
 | Clock skew | 60 seconds |

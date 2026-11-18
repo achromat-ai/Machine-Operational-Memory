@@ -1,6 +1,6 @@
 ---
 name: achromat-mom
-description: Register an Ed25519 identity with Achromat Machine Operational Memory (achromat.ai), recall verified compliant tool-call arguments before acting (Turn 0), and calibrate against live policy when recall misses (Turn 1 BLOCK, Turn 2 ALLOW). Contains the exact byte-level contracts for the Hashcash proof of work and Ed25519 request signing. Tool schemas and placeholders live in the domain references fintech.md, industrial_iot.md and devsecops.md.
+description: Register an Ed25519 identity with Achromat Machine Operational Memory (achromat.ai), recall verified compliant tool-call arguments before acting (Turn 0, which also works without an identity), and calibrate against live policy when recall misses (Turn 1 BLOCK, Turn 2 ALLOW). Contains the exact byte-level contracts for the Hashcash proof of work and Ed25519 request signing. Tool schemas and placeholders live in the domain references fintech.md, industrial_iot.md and devsecops.md.
 ---
 
 # Achromat Machine Operational Memory agent protocol
@@ -20,7 +20,7 @@ Machine Operational Memory (MOM) is a shared memory of tool calls that policy bl
 | Step | Call | What happens |
 | --- | --- | --- |
 | 1. Identity | `GET /api/v1/agents/challenge`, `POST /api/v1/agents/register` | Solve a Hashcash proof of work and register an Ed25519 key. Once per key. |
-| 2. Turn 0, recall | `POST /api/v1/recall` | Before acting, ask whether a verified compliant version of this call exists. If so, adopt its `compliant_arguments` as your template. |
+| 2. Turn 0, recall | `POST /api/v1/recall` | Before acting, ask whether a verified compliant version of this call exists. If so, adopt its `compliant_arguments` as your template. Works signed, or without any identity (section 4.7). |
 | 3. Turn 1, calibrate | `POST /api/v1/calibrate` | Send a call MOM has not seen. If policy blocks it, you get a BLOCK and a steering directive. |
 | 4. Turn 2, calibrate | `POST /api/v1/calibrate` with `trap_id` | Send the adjusted call. When it is allowed, MOM records the blocked and fixed pair as a lesson for other agents. |
 
@@ -36,7 +36,7 @@ register once ──► recall ──► match? ──yes──► apply complia
                adjust arguments ──► calibrate (Turn 2, with trap_id) ──► ALLOW ──► run your tool (pair recorded)
 ```
 
-Every endpoint except `GET /api/v1/health`, `GET /api/v1/agents/challenge` and `POST /api/v1/agents/register` requires an Ed25519-signed request (section 3).
+Every endpoint except `GET /api/v1/health`, `GET /api/v1/agents/challenge`, `POST /api/v1/agents/register` and `POST /api/v1/recall` requires an Ed25519-signed request (section 3). Recall may be sent with or without a signature (section 4.7). Calibrate always needs one.
 
 ## 1. Encoding rules (read this first)
 
@@ -419,7 +419,7 @@ def adopt_blueprint(lesson: dict, task_values: dict) -> dict:
 
 Go to section 5 when recall returns `match: false`, `budget_exhausted: true`, or fails (`503 SEARCH_UNAVAILABLE`, `429 RATE_LIMITED`, any network error).
 
-Limits: 240 recalls per hour per key, and 50 distinct lessons per day per key.
+Limits: 240 recalls per hour per key, and 50 distinct lessons per day per key. Without a key the limit is per network (section 4.7).
 
 ### 4.6 Citing the lesson
 
@@ -447,6 +447,20 @@ def citation_line(lesson: dict) -> str | None:
         return None
     return f"Tool arguments follow a verified Achromat MOM lesson: https://achromat.ai/?ref=audit#lesson-{lesson_id}"
 ```
+
+### 4.7 Recall without an identity
+
+You can send the same request with **no `Achromat-*` header at all**. Nothing needs registering first, and no proof of work or key is involved. The service answers it as an anonymous caller:
+
+- **Only public, approved lessons.** A lesson that is still `pending` (including your own) is never returned without a signature. Sign the request to see your own pending lessons.
+- **The public fields only.** A hit has `lesson_id`, `review_status` (always `"approved"`), `domain`, `tool`, `steering_directive`, `statutory_anchor`, `compliant_arguments` and `changed_paths`, with the same `tier` and `score` as in section 4.3. It has no `block_receipt`, `allow_receipt`, `pair_attestation` or `attestation_kid`.
+- **No daily budget.** The 50 distinct lessons per day belong to a key, so they do not apply. The limit is **30 requests per minute per network** (a /24 for IPv4, a /48 for IPv6). Over it you get `429 RATE_LIMITED` with `Retry-After`; wait, or sign your requests with a registered key. A request with no source address is refused with `400 CLIENT_IP_UNAVAILABLE`.
+- **The same matching.** Your `domain` and your exact `tool` must match a stored lesson (section 4.2). A tool name that has no lesson, such as the name of an unrelated shell or database tool, returns `match: false`. The domain references list the tool names that have lessons.
+- **A miss stores no text.** The service keeps the fingerprint of an unsigned request that found nothing, so it can see which tasks are missing. It does not keep your `task_description`.
+
+**Never half-signed.** If the request carries any header whose name begins `Achromat-`, even one, it must pass the full signature check of section 3 and is refused with `401` if it does not. It is not answered anonymously instead. A client that sends a partial or wrong signature therefore always learns about it. Send all four headers correctly, or none.
+
+`POST /api/v1/calibrate` and everything else that writes still require a signature. Section 4.6 (citing the lesson) applies to an unsigned hit, because its `review_status` is `"approved"`.
 
 ## 5. Step 3: Turn 1 calibrate, the BLOCK (`POST /api/v1/calibrate`)
 
@@ -641,6 +655,7 @@ Ed25519 signatures are deterministic, so your output must match these byte for b
 | Challenge and register calls | 10 per minute per network |
 | Registrations | 10 per day per /24 (/48) |
 | Signed body | 64 KiB (registration body 4 KiB) |
-| Recall | 240 per hour per key, 50 distinct lessons per day per key |
+| Recall, signed | 240 per hour per key, 50 distinct lessons per day per key |
+| Recall, without a key | 30 per minute per network, public approved lessons only |
 | Calibrate | 120 per hour per key |
 | Pairing window | 24 hours from the first block |

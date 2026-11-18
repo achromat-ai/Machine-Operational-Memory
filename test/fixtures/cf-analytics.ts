@@ -2,7 +2,7 @@
  * Fake Cloudflare Analytics Engine SQL API for GET /api/v1/admin/telemetry tests.
  *
  * Replaces global fetch. Only POST to the test account's analytics_engine/sql endpoint is answered; any other
- * outbound request throws, so a test can never reach the real network. The three queries the route sends are told
+ * outbound request throws, so a test can never reach the real network. The eight queries the route sends are told
  * apart by their SQL text and answered from canned rows. Nothing here is a secret.
  */
 import { vi } from "vitest";
@@ -11,7 +11,7 @@ export const TEST_ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 export const TEST_ANALYTICS_TOKEN = "test-only-analytics-api-token";
 export const ANALYTICS_URL = `https://api.cloudflare.com/client/v4/accounts/${TEST_ACCOUNT_ID}/analytics_engine/sql`;
 
-export type CfQueryName = "funnel" | "registrations" | "activity" | "failures" | "searches" | "lessonViews";
+export type CfQueryName = "funnel" | "registrations" | "activity" | "failures" | "searches" | "lessonViews" | "recallCalls" | "unmatchedTools";
 
 export interface CfRows {
   funnel?: unknown[];
@@ -20,6 +20,8 @@ export interface CfRows {
   failures?: unknown[];
   searches?: unknown[];
   lessonViews?: unknown[];
+  recallCalls?: unknown[];
+  unmatchedTools?: unknown[];
 }
 
 /** How one query is answered instead of the canned rows. */
@@ -42,6 +44,9 @@ export interface RecordedCfRequest {
 }
 
 export function classify(sql: string): CfQueryName {
+  // The two recall queries also mention 'recall', so they are told apart before the activity query is.
+  if (sql.includes("ORDER BY events DESC")) return "unmatchedTools";
+  if (sql.includes("'recall_unsigned'")) return "recallCalls";
   if (sql.includes("'registration_failed'")) return "failures";
   if (sql.includes("'human_search'")) return "searches";
   if (sql.includes("'lesson_view'")) return "lessonViews";

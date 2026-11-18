@@ -43,6 +43,22 @@ export interface AuthVariables {
   agent_pubkey: string;
   agent: AuthenticatedAgent;
   raw_body: Uint8Array;
+  /**
+   * Set (to true) only by the optional-signature gate in app.ts, for a request that carried no Achromat-* header at all.
+   * Then `agent` and `raw_body` are NOT set. Every other route is behind requireAgentSignature() and never sees it.
+   */
+  anonymous_caller?: boolean;
+}
+
+/**
+ * True if the request carries ANY header whose name starts with "achromat-". Used by the optional-signature gate: a
+ * request with none is anonymous; a request with one (even a lone Achromat-Nonce, or a malformed set) must pass the
+ * full signature check and gets its 401 on failure. It is never treated as anonymous, so a client with a bad key,
+ * a skewed clock or a truncated header set always hears about it.
+ */
+export function hasAchromatHeaders(headers: Headers): boolean {
+  for (const name of headers.keys()) if (name.toLowerCase().startsWith("achromat-")) return true;
+  return false;
 }
 
 export interface AgentSignatureOptions {

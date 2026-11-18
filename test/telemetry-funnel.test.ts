@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import entry from "../src/index";
 import skillMarkdown from "../SKILL.md";
 import fintechMarkdown from "../public/fintech.md";
-import { anonymiseAgentKey, parseRef, refFromUrl } from "../src/telemetry";
+import { CLIENT_LABELS, MISS_REASONS, anonymiseAgentKey, clientLabel, parseRef, refFromUrl, writeTelemetry, type TelemetryAction } from "../src/telemetry";
 import { TOOL, TRAP_ARGUMENTS, agentKeyHex } from "./fixtures/ledger";
 import { fakeAnalytics, freshWorld, type World } from "./fixtures/world";
 import { ORIGIN, freshIp, getChallenge, newAgent, registrationBody, type Challenge } from "./helpers";
@@ -201,5 +201,82 @@ describe("telemetry: onboarding (challenge_issued, agent_register)", () => {
     const issued = await challenge(world, ip, "?ref=x");
     expect((await viaWorld(world, "/api/v1/agents/register?ref=x", { ip, method: "POST", body: await registrationBody(agent, issued) })).status).toBe(201);
     expect(world.analytics.points).toHaveLength(0);
+  });
+});
+
+
+/**
+ * Analytics Engine samples a busy index, and every unauthenticated funnel event (skill_view, challenge_issued) shares the
+ * index "anonymous". If unsigned recalls or sandbox calls were written to that index too, a burst of them would raise the
+ * sampling rate of the funnel counts. They have indexes of their own, applied in writeTelemetry so no call site can forget.
+ */
+describe("telemetry: sampling indexes", () => {
+  async function pointFor(event: Parameters<typeof writeTelemetry>[1]) {
+    const analytics = fakeAnalytics();
+    await writeTelemetry({ ...env, ANALYTICS: analytics } as typeof env, event);
+    return analytics.points[0]!;
+  }
+
+  it("gives recall_unsigned and mcp_sandbox_recall an index of their own, not the shared 'anonymous' one", async () => {
+    const unsigned = await pointFor({ action: "recall_unsigned", domain: "fintech", tool: "x", agentKey: null, status: "miss" });
+    const sandbox = await pointFor({ action: "mcp_sandbox_recall", domain: "fintech", tool: "x", agentKey: null, status: "sample" });
+    expect(unsigned.indexes).toEqual(["recall_unsigned"]);
+    expect(sandbox.indexes).toEqual(["mcp_sandbox_recall"]);
+    // Both still say who called: nobody.
+    expect(unsigned.blobs![3]).toBe("anonymous");
+    expect(sandbox.blobs![3]).toBe("anonymous");
+  });
+
+  it("keeps the 'anonymous' index for the funnel events only", async () => {
+    const indexes = new Map<TelemetryAction, string>();
+    for (const action of ["skill_view", "challenge_issued"] as const) {
+      indexes.set(action, (await pointFor({ action, domain: "", tool: "", agentKey: null, status: "served", ref: "" })).indexes![0] as string);
+    }
+    expect([...indexes.values()]).toEqual(["anonymous", "anonymous"]);
+    // The two recall actions that can have no agent key never land there, whatever their call site passes. (registration_failed,
+    // human_search and lesson_view also avoid it, but through the explicit `index` their call sites give them.)
+    for (const action of ["recall_unsigned", "mcp_sandbox_recall"] as const) {
+      const point = await pointFor({ action, domain: "", tool: "", agentKey: null, status: "miss" });
+      expect(point.indexes![0], action).toBe(action);
+    }
+  });
+
+  it("lets a caller-chosen index override, and still gives a signed recall its agent's index", async () => {
+    expect((await pointFor({ action: "recall_unsigned", domain: "", tool: "", agentKey: null, status: "miss", index: "custom" })).indexes).toEqual(["custom"]);
+    const agentKey = "a".repeat(64);
+    const id = await anonymiseAgentKey(agentKey);
+    expect((await pointFor({ action: "recall", domain: "fintech", tool: "x", agentKey, status: "hit" })).indexes).toEqual([id]);
+  });
+});
+
+describe("telemetry: recall miss reason and caller label", () => {
+  async function blobsFor(event: Partial<Parameters<typeof writeTelemetry>[1]>) {
+    const analytics = fakeAnalytics();
+    await writeTelemetry({ ...env, ANALYTICS: analytics } as typeof env, { action: "recall_unsigned", domain: "fintech", tool: "t", agentKey: null, status: "miss", ...event });
+    return analytics.points[0]!.blobs as string[];
+  }
+
+  it("writes only a known miss reason and a known caller label, and never anything else", async () => {
+    for (const reason of MISS_REASONS) expect((await blobsFor({ detail: reason, client: "other" }))[6], reason).toBe(reason);
+    for (const client of CLIENT_LABELS) expect((await blobsFor({ detail: "", client }))[7], client).toBe(client);
+    // Free text in either slot is replaced, not written.
+    const hostile = await blobsFor({ detail: "my secret task text", client: "Mozilla/5.0 (secret)" });
+    expect(hostile[6]).toBe("");
+    expect(hostile[7]).toBe("other");
+    expect(JSON.stringify(hostile)).not.toMatch(/secret/);
+  });
+
+  it("pads the ref, reason and label slots in order, and writes nothing extra when none is given", async () => {
+    expect(await blobsFor({})).toEqual(["recall_unsigned", "fintech", "t", "anonymous", "miss"]);
+    expect(await blobsFor({ client: "mcp-package" })).toEqual(["recall_unsigned", "fintech", "t", "anonymous", "miss", "", "", "mcp-package"]);
+    expect(await blobsFor({ ref: "hn", detail: "tool_unknown", client: "other" })).toEqual(["recall_unsigned", "fintech", "t", "anonymous", "miss", "hn", "tool_unknown", "other"]);
+  });
+
+  it("recognises this package by the User-Agent prefix and nothing looser", () => {
+    const label = (userAgent?: string) => clientLabel(new Request("https://achromat.ai/", userAgent === undefined ? {} : { headers: { "User-Agent": userAgent } }));
+    expect(label("achromat-mcp-server/0.1.5")).toBe("mcp-package");
+    for (const other of [undefined, "", "curl/8.4.0", "achromat-mcp-server", "Achromat-MCP-Server/1", "x achromat-mcp-server/1"]) {
+      expect(label(other), String(other)).toBe("other");
+    }
   });
 });

@@ -328,8 +328,9 @@ export function createAdminRoutes(options: AdminOptions) {
   });
 
   /**
-   * The activation funnel by ref. Read-only and side-effect free: six flat Analytics Engine SQL queries,
-   * merged in the Worker (src/analytics-query.ts). Cloudflare's error text is never relayed.
+   * The activation funnel by ref, plus all-agent activity, signed vs unsigned vs sandbox recalls and an exact D1 ledger.
+   * Read-only and side-effect free: eight flat Analytics Engine SQL queries and four D1 aggregates, merged in the
+   * Worker (src/analytics-query.ts). Cloudflare's error text is never relayed.
    */
   admin.get("/telemetry", async (c) => {
     const params = queryParams(c.req.url);
@@ -345,7 +346,7 @@ export function createAdminRoutes(options: AdminOptions) {
       return apiError(c, 503, "SERVICE_MISCONFIGURED", "telemetry is temporarily unavailable");
     }
     try {
-      return c.json({ success: true, ...(await loadTelemetryReport(config, parsed.data.window)) });
+      return c.json({ success: true, ...(await loadTelemetryReport(config, parsed.data.window, Date.now(), c.env.DB)) });
     } catch (error) {
       if (error instanceof AnalyticsQueryError) return apiError(c, error.status, error.code, error.message);
       throw error;

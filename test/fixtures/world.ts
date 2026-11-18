@@ -65,6 +65,25 @@ export function createWorld(overrides: Partial<AppOptions> = {}) {
     return { status: response.status, json: await response.json(), response };
   }
 
+  /**
+   * A POST with NO signature, exactly as an anonymous caller would send it. `headers` are added as given, so a test can add
+   * Achromat-* headers (a partial or bad set must be refused, never answered anonymously). `ip: null` sends no
+   * CF-Connecting-IP.
+   */
+  async function sendUnsigned(
+    path: string,
+    payload: unknown,
+    options: { ip?: string | null; headers?: Record<string, string> } = {},
+  ): Promise<{ status: number; json: any; response: Response }> {
+    const body = typeof payload === "string" ? payload : JSON.stringify(payload);
+    const headers = new Headers({ "Content-Type": "application/json", ...options.headers });
+    if (options.ip !== null) headers.set("CF-Connecting-IP", options.ip ?? freshIp());
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(new Request(ORIGIN + path, { method: "POST", headers, body }), worldEnv, ctx);
+    await waitOnExecutionContext(ctx);
+    return { status: response.status, json: await response.json(), response };
+  }
+
   return {
     ...fake,
     analytics,
@@ -73,6 +92,9 @@ export function createWorld(overrides: Partial<AppOptions> = {}) {
     worker,
     calibrate: (agent: TestAgent, payload: unknown) => send(agent, "/api/v1/calibrate", payload),
     recall: (agent: TestAgent, payload: unknown) => send(agent, "/api/v1/recall", payload),
+    /** POST /api/v1/recall with no signature (an anonymous caller). */
+    recallUnsigned: (payload: unknown, options?: { ip?: string | null; headers?: Record<string, string> }) => sendUnsigned("/api/v1/recall", payload, options),
+    sendUnsigned,
     /** The cron handler, as Cloudflare would invoke it. */
     runCron: (): Promise<void> => worker.scheduled(createScheduledController(), env, createExecutionContext()),
     /** reconcile() directly; `triageMinAgeMs: 0` makes just-created lessons count as stuck. */

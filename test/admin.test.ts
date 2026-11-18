@@ -24,6 +24,7 @@ import {
   pauseAutoApprove,
   provisionAgent,
   reviewActions,
+  uniqueDescription,
   uuid,
 } from "./fixtures/ledger";
 import { ANALYTICS_URL, TEST_ANALYTICS_TOKEN, mockCloudflareAnalytics, type CfRows } from "./fixtures/cf-analytics";
@@ -1111,6 +1112,26 @@ describe("GET /api/v1/admin/telemetry", () => {
       { ref_tag: "audit", outcome: "miss", events: 1 },
       { ref_tag: "launch-post", outcome: "hit", events: "2" },
     ],
+    // recall (signed), recall_unsigned and mcp_sandbox_recall, by action, domain, status, miss reason and client.
+    recallCalls: [
+      { action: "recall", domain: "fintech", status: "hit", reason: "", client: "mcp-package", events: 6 },
+      { action: "recall", domain: "fintech", status: "miss", reason: "below_threshold", client: "mcp-package", events: "2" },
+      { action: "recall", domain: "devsecops", status: "budget_exhausted", reason: "", client: "other", events: 1 },
+      { action: "recall", domain: "devsecops", status: "miss", reason: "", client: "", events: 3 }, // before miss reasons existed
+      { action: "recall_unsigned", domain: "devsecops", status: "hit", reason: "", client: "mcp-package", events: 4 },
+      { action: "recall_unsigned", domain: "devsecops", status: "miss", reason: "tool_unknown", client: "mcp-package", events: 9 },
+      { action: "recall_unsigned", domain: "fintech", status: "miss", reason: "tool_unknown", client: "other", events: "5" },
+      { action: "recall_unsigned", domain: "fintech", status: "miss", reason: "no_candidate", client: "other", events: 1 },
+      { action: "recall_unsigned", domain: "", status: "rate_limited", reason: "", client: "other", events: 7 },
+      { action: "mcp_sandbox_recall", domain: "fintech", status: "sample", reason: "", client: "", events: 11 },
+      { action: "mcp_sandbox_recall", domain: "devsecops", status: "empty", reason: "", client: "", events: 2 },
+    ],
+    unmatchedTools: [
+      { tool: "bash", reason: "tool_unknown", events: 8 },
+      { tool: "postgres_query", reason: "tool_unknown", events: "6" },
+      { tool: "dispatch_wire", reason: "below_threshold", events: 4 },
+      { tool: "shell", reason: "", events: 1 }, // a miss recorded before reasons existed
+    ],
   };
 
   const EMPTY_TOTALS = { skill_view: 0, challenge_issued: 0, agent_register: 0, agents_recalled: 0, agents_calibrated: 0, recall_requests: 0, calibrate_requests: 0, registration_failed: 0 };
@@ -1144,8 +1165,8 @@ describe("GET /api/v1/admin/telemetry", () => {
       expect(result.status).toBe(200);
       expect(result.response.headers.get("Cache-Control")).toBe("no-store");
 
-      // Six requests, one per query, each to the account's SQL endpoint with the bearer token and nothing request-controlled.
-      expect(mock.requests.map((request) => request.query).sort()).toEqual(["activity", "failures", "funnel", "lessonViews", "registrations", "searches"]);
+      // Eight requests, one per query, each to the account's SQL endpoint with the bearer token and nothing request-controlled.
+      expect(mock.requests.map((request) => request.query).sort()).toEqual(["activity", "failures", "funnel", "lessonViews", "recallCalls", "registrations", "searches", "unmatchedTools"]);
       for (const request of mock.requests) {
         expect(request.url).toBe(ANALYTICS_URL);
         expect(request.method).toBe("POST");
@@ -1159,9 +1180,17 @@ describe("GET /api/v1/admin/telemetry", () => {
       // Counts are weighted by the sample interval, never plain row counts.
       expect(mock.requests.find((request) => request.query === "funnel")!.sql).toContain("SUM(_sample_interval)");
       expect(mock.requests.find((request) => request.query === "activity")!.sql).toContain("SUM(_sample_interval)");
+      expect(mock.requests.find((request) => request.query === "recallCalls")!.sql).toContain("SUM(_sample_interval)");
+      expect(mock.requests.find((request) => request.query === "unmatchedTools")!.sql).toContain("SUM(_sample_interval)");
+      // The unmatched-tools query is bounded, and the recall-calls query reads only the three recall actions.
+      expect(mock.requests.find((request) => request.query === "unmatchedTools")!.sql).toMatch(/ORDER BY events DESC\nLIMIT 25\n/);
+      expect(mock.requests.find((request) => request.query === "recallCalls")!.sql).toContain("blob1 IN ('recall', 'recall_unsigned', 'mcp_sandbox_recall')");
 
       const json = result.json;
-      expect(Object.keys(json).sort()).toEqual(["audit_links", "by_ref", "conversion", "dataset", "failures", "generated_at", "notes", "searches", "success", "totals", "truncated", "window"]);
+      expect(Object.keys(json).sort()).toEqual([
+        "activity_all_agents", "audit_links", "by_ref", "conversion", "dataset", "failures", "generated_at", "ledger", "notes",
+        "recall_summary", "searches", "success", "totals", "truncated", "unmatched_tools", "window",
+      ]);
       expect(json.success).toBe(true);
       expect(json.dataset).toBe("achromat_mom_telemetry");
       expect(json.truncated).toBe(false);
@@ -1209,6 +1238,69 @@ describe("GET /api/v1/admin/telemetry", () => {
         register_to_calibrate: 0.25,
       });
 
+      // ALL agents, with no cohort filter: a9 (registered before the window) is counted here and nowhere above.
+      expect(json.activity_all_agents).toEqual({
+        recall: { requests: 112, agents: 4 }, // 5 + 3 + 4 + 100, from a1, a2, a4 and a9
+        calibrate: { requests: 103, agents: 2 }, // 2 + 1 + 100, from a1 and a9
+      });
+      // ... while the cohort fields above still exclude a9.
+      expect(json.totals.recall_requests).toBe(12);
+
+      // Signed, unsigned and sandbox recalls, side by side.
+      expect(json.recall_summary.signed).toEqual({
+        requests: 12,
+        hit: 6,
+        miss: 5,
+        budget_exhausted: 1,
+        rate_limited: 0,
+        by_domain: [
+          { domain: "fintech", requests: 8, hit: 6 },
+          { domain: "devsecops", requests: 4, hit: 0 },
+        ],
+        miss_reasons: [{ reason: "below_threshold", events: 2 }], // the 3 misses with no reason are not invented a reason
+        by_client: [
+          { client: "mcp-package", requests: 8 },
+          { client: "other", requests: 1 },
+        ],
+      });
+      expect(json.recall_summary.unsigned).toEqual({
+        requests: 26,
+        hit: 4,
+        miss: 15,
+        budget_exhausted: 0,
+        rate_limited: 7,
+        by_domain: [
+          { domain: "devsecops", requests: 13, hit: 4 },
+          { domain: "", requests: 7, hit: 0 },
+          { domain: "fintech", requests: 6, hit: 0 },
+        ],
+        miss_reasons: [
+          { reason: "tool_unknown", events: 14 },
+          { reason: "no_candidate", events: 1 },
+        ],
+        // A tie (13 each) is broken alphabetically.
+        by_client: [
+          { client: "mcp-package", requests: 13 },
+          { client: "other", requests: 13 },
+        ],
+      });
+      expect(json.recall_summary.mcp_sandbox).toEqual({
+        calls: 13,
+        sample: 11,
+        empty: 2,
+        by_domain: [
+          { domain: "fintech", calls: 11 },
+          { domain: "devsecops", calls: 2 },
+        ],
+      });
+      // The tool names recalls missed on: most missed first, a missing reason is null, counts that arrive as strings are summed.
+      expect(json.unmatched_tools).toEqual([
+        { tool: "bash", reason: "tool_unknown", events: 8 },
+        { tool: "postgres_query", reason: "tool_unknown", events: 6 },
+        { tool: "dispatch_wire", reason: "below_threshold", events: 4 },
+        { tool: "shell", reason: null, events: 1 },
+      ]);
+
       // The notes explain the sampling behaviour and the cohort.
       const notes: string = json.notes.join("\n");
       expect(json.notes.length).toBeGreaterThan(0);
@@ -1218,6 +1310,9 @@ describe("GET /api/v1/admin/telemetry", () => {
       expect(notes).toMatch(/failures count every refused/);
       expect(notes).toMatch(/audit_links counts opened citation links/);
       expect(notes).toMatch(/registered inside the window|fell inside the window/);
+      expect(notes).toMatch(/activity_all_agents counts every agent/);
+      expect(notes).toMatch(/tool_unknown/);
+      expect(notes).toMatch(/ledger is read from D1/);
 
       // Neither the token nor any request detail leaks into the response.
       expect(JSON.stringify(json)).not.toContain(TEST_ANALYTICS_TOKEN);
@@ -1236,7 +1331,7 @@ describe("GET /api/v1/admin/telemetry", () => {
       expect(result.status).toBe(200);
       expect(result.json.window.name).toBe("24h");
       expect(Date.parse(result.json.window.to) - Date.parse(result.json.window.from)).toBe(24 * 60 * 60 * 1000);
-      expect(mock.requests).toHaveLength(6);
+      expect(mock.requests).toHaveLength(8);
       for (const request of mock.requests) {
         expect(request.sql).toContain("INTERVAL '1' DAY");
         expect(request.sql).not.toContain("INTERVAL '7' DAY");
@@ -1277,6 +1372,10 @@ describe("GET /api/v1/admin/telemetry", () => {
       expect(result.json.searches).toEqual({ total: 0, hits: 0, by_domain: [] });
       expect(result.json.audit_links).toEqual({ views: 0, found: 0, by_ref: [] });
       expect(result.json.conversion).toEqual({ view_to_challenge: null, challenge_to_register: null, register_to_recall: null, register_to_calibrate: null });
+      expect(result.json.activity_all_agents).toEqual({ recall: { requests: 0, agents: 0 }, calibrate: { requests: 0, agents: 0 } });
+      const none = { requests: 0, hit: 0, miss: 0, budget_exhausted: 0, rate_limited: 0, by_domain: [], miss_reasons: [], by_client: [] };
+      expect(result.json.recall_summary).toEqual({ signed: none, unsigned: none, mcp_sandbox: { calls: 0, sample: 0, empty: 0, by_domain: [] } });
+      expect(result.json.unmatched_tools).toEqual([]);
       expect(result.json.truncated).toBe(false);
     } finally {
       mock.restore();
@@ -1378,6 +1477,109 @@ describe("GET /api/v1/admin/telemetry", () => {
         mock.restore();
       }
     }
+  });
+
+  describe("the D1 ledger section (exact, not sampled)", () => {
+    /** The ledger as the endpoint reports it, with the Analytics Engine returning no rows. */
+    async function ledgerOf(world: World, admin: { agent: TestAgent }, window = "7d") {
+      const mock = mockCloudflareAnalytics({});
+      try {
+        const result = await api(world, admin.agent, `${TELEMETRY}?window=${window}`);
+        expect(result.status).toBe(200);
+        return result.json.ledger as {
+          registrations: Array<{ role: string; in_window: number; all_time: number }>;
+          calibrate: { attempts: number; agents: number; block: number; allow: number };
+          recall_hits: { first_deliveries: number; agents: number };
+          recall_misses: { misses: number; callers: number };
+        };
+      } finally {
+        mock.restore();
+      }
+    }
+    const role = (ledger: Awaited<ReturnType<typeof ledgerOf>>, name: string) => ledger.registrations.find((row) => row.role === name) ?? { role: name, in_window: 0, all_time: 0 };
+
+    it("counts every agent's calibrations, recall hits and recall misses, and new registrations, exactly", async () => {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const before = await ledgerOf(world, admin);
+
+      // One new community agent makes a lesson (a BLOCK and an ALLOW), and a second agent reads it and then misses once.
+      const owner = await community();
+      const { description } = await world.createLesson(owner.agent);
+      const reader = await community();
+      expect((await world.recall(owner.agent, { domain: "fintech", tool: "transfer_funds", task_description: description, arguments: TRAP_ARGUMENTS })).json.match).toBe(true);
+      expect((await world.recall(reader.agent, { domain: "fintech", tool: "bash", task_description: uniqueDescription(), arguments: TRAP_ARGUMENTS })).json.match).toBe(false);
+
+      const after = await ledgerOf(world, admin);
+      expect(role(after, "community").in_window - role(before, "community").in_window).toBe(2);
+      expect(role(after, "community").all_time - role(before, "community").all_time).toBe(2);
+      expect(after.calibrate.attempts - before.calibrate.attempts).toBe(2);
+      expect(after.calibrate.agents - before.calibrate.agents).toBe(1);
+      expect(after.calibrate.block - before.calibrate.block).toBe(1);
+      expect(after.calibrate.allow - before.calibrate.allow).toBe(1);
+      expect(after.recall_hits.first_deliveries - before.recall_hits.first_deliveries).toBe(1);
+      expect(after.recall_hits.agents - before.recall_hits.agents).toBe(1);
+      expect(after.recall_misses.misses - before.recall_misses.misses).toBe(1);
+      expect(after.recall_misses.callers - before.recall_misses.callers).toBe(1);
+    });
+
+    it("sees an agent that registered before the window, which the cohort fields cannot", async () => {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const veteran = await community();
+      // Age the registration to 10 days ago (agent_identities is insert-only, so its update trigger is dropped around the rewrite).
+      await env.DB.prepare("DROP TRIGGER agent_identities_no_update").run();
+      try {
+        await env.DB.prepare("UPDATE agent_identities SET registered_at_ms = registered_at_ms - ?2 WHERE agent_key = ?1").bind(veteran.key, 10 * 24 * HOUR).run();
+      } finally {
+        await env.DB.prepare("CREATE TRIGGER agent_identities_no_update BEFORE UPDATE ON agent_identities BEGIN SELECT RAISE(ABORT, 'agent_identities is append-only'); END").run();
+      }
+      const before = await ledgerOf(world, admin);
+      await world.createLesson(veteran.agent);
+      const after = await ledgerOf(world, admin);
+      // The ledger counts the veteran's two calibrations although it registered outside the 7 day window ...
+      expect(after.calibrate.attempts - before.calibrate.attempts).toBe(2);
+      expect(after.calibrate.agents - before.calibrate.agents).toBe(1);
+      // ... and the registration is in all_time but not in the window.
+      expect(role(after, "community").in_window).toBe(role(before, "community").in_window);
+      expect(role(after, "community").all_time).toBe(role(before, "community").all_time);
+    });
+
+    it("reads a 24 hour window from its own cut-off, and returns only counts", async () => {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const week = await ledgerOf(world, admin, "7d");
+      const day = await ledgerOf(world, admin, "24h");
+      expect(day.calibrate.attempts).toBeLessThanOrEqual(week.calibrate.attempts);
+      for (const ledger of [week, day]) {
+        expect(Object.keys(ledger).sort()).toEqual(["calibrate", "recall_hits", "recall_misses", "registrations"]);
+        const text = JSON.stringify(ledger);
+        expect(text).not.toMatch(/[0-9a-f]{64}/); // no agent key
+        expect(text).not.toContain("task_description");
+      }
+    });
+
+    it("is null, with the rest of the report intact, when D1 cannot be read", async () => {
+      const world = await freshWorld();
+      const admin = await provisionAgent("admin");
+      const mock = mockCloudflareAnalytics(ROWS);
+      try {
+        const brokenDb = new Proxy(env.DB, {
+          get(target, property) {
+            if (property === "batch") return () => Promise.reject(new Error("D1 down"));
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        const result = await api(world, admin.agent, TELEMETRY, { env: { ...env, DB: brokenDb } as typeof env });
+        expect(result.status).toBe(200);
+        expect(result.json.ledger).toBeNull();
+        expect(result.json.totals.agent_register).toBe(4);
+        expect(JSON.stringify(result.json)).not.toContain("D1 down");
+      } finally {
+        mock.restore();
+      }
+    });
   });
 
   it("shares the per-key admin budget with the other admin reads", async () => {

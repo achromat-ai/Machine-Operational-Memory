@@ -23,6 +23,8 @@ export interface Env {
   MCP_LIMITER: RateLimit;
   /** Per-network limit (30/min) on the public GET /api/v1/search (src/routes/search.ts). */
   SEARCH_LIMITER: RateLimit;
+  /** Per-network limit (30/min) on unsigned POST /api/v1/recall (src/routes/recall.ts). */
+  RECALL_ANON_LIMITER: RateLimit;
   /** achromat_mom_telemetry: anonymised /recall and /calibrate usage data points (src/telemetry.ts). */
   ANALYTICS: AnalyticsEngineDataset;
   /**

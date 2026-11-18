@@ -314,7 +314,7 @@ describe("the ARD catalog", () => {
     const FEED = "GET /api/v1/feed"; // public and allow-listed, but not part of the agent protocol document
     expect(metadata.publicFeed).toBe(FEED);
     const endpoints = Object.entries(metadata).filter(([key]) => /^(public|signed)[A-Z]/.test(key));
-    expect(endpoints.length).toBe(7);
+    expect(endpoints.length).toBe(8);
     expect(metadata.apiBaseUrl).toBe(`${SITE_ORIGIN}/api/v1`);
     for (const endpoint of endpoints.map(([, value]) => value).filter((value) => value !== FEED)) {
       const [method, path] = endpoint.split(" ") as [string, string];

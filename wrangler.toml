@@ -125,6 +125,14 @@ name = "SEARCH_LIMITER"
 namespace_id = "1004"
 simple = { limit = 30, period = 60 }
 
+# Per-network limit on UNSIGNED POST /api/v1/recall (src/routes/recall.ts), keyed the same way. A request with no
+# Achromat-* header is anonymous and may cost one Workers AI embedding and one Vectorize query, like a search, so it
+# gets the same allowance. Signed recalls keep their per-key limits and never touch this binding.
+[[ratelimits]]
+name = "RECALL_ANON_LIMITER"
+namespace_id = "1005"
+simple = { limit = 30, period = 60 }
+
 # Secrets (wrangler secret put <NAME>, never vars): IP_HMAC_KEY, POW_CHALLENGE_HMAC_KEY,
 # RAMEN_API_KEY, MOM_ATTESTATION_PRIVATE_KEY, VISIBILITY_KEY, ANALYTICS_API_TOKEN (a read-only
 # Account Analytics token for GET /api/v1/admin/telemetry; never the wrangler deploy token).

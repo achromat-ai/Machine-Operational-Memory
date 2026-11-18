@@ -7,8 +7,8 @@
  * React SPA (wrangler.toml [assets], run_worker_first).
  *
  * Every /api/v1 route requires an Ed25519-signed request except
- * the explicit public list below. Unknown paths fail closed: an unsigned request
- * gets 401 before routing can answer 404.
+ * the explicit public list below, and POST /api/v1/recall, where the signature is optional (OPTIONAL_SIGNATURE_ROUTES).
+ * Unknown paths fail closed: an unsigned request gets 401 before routing can answer 404.
  *
  * createApp()/createWorker() take options only so tests can trust a throwaway
  * receipt key and replace Workers AI and Vectorize, which only run remotely.
@@ -18,7 +18,7 @@
 import { Hono } from "hono";
 import { RAMEN_RECEIPT_KEYS } from "./crypto/ramen-key";
 import type { Env } from "./env";
-import { requireAgentSignature, type AuthVariables } from "./middleware/auth";
+import { hasAchromatHeaders, requireAgentSignature, type AuthVariables } from "./middleware/auth";
 import { reconcile } from "./review/pipeline";
 import { createAdminRoutes } from "./routes/admin";
 import { agents } from "./routes/agents";
@@ -52,6 +52,14 @@ const PUBLIC_API_ROUTES: ReadonlySet<string> = new Set([
   "HEAD /api/v1/feed",
   "GET /api/v1/search",
 ]);
+
+/**
+ * Routes where the signature is OPTIONAL, as "METHOD path". A request with no Achromat-* header runs as an anonymous
+ * caller (the route decides what that may see and how it is limited); a request with ANY Achromat-* header goes through
+ * the full signature check below and is refused with 401 if it fails. Only POST /api/v1/recall is here: calibrate,
+ * identity, admin and the bounty board always need a signature, and a test pins each of them.
+ */
+const OPTIONAL_SIGNATURE_ROUTES: ReadonlySet<string> = new Set(["POST /api/v1/recall"]);
 
 /** Unsigned: the fixed list above, plus reading one lesson by id (GET or HEAD /api/v1/feed/<uuid>). */
 function isPublicApiRoute(method: string, path: string): boolean {
@@ -89,9 +97,14 @@ export function createApp(options: AppOptions = {}) {
   });
 
   const signed = requireAgentSignature();
-  app.use("/api/v1/*", (c, next) =>
-    isPublicApiRoute(c.req.method, c.req.path) ? next() : signed(c, next),
-  );
+  app.use("/api/v1/*", (c, next) => {
+    if (isPublicApiRoute(c.req.method, c.req.path)) return next();
+    if (OPTIONAL_SIGNATURE_ROUTES.has(`${c.req.method} ${c.req.path}`) && !hasAchromatHeaders(c.req.raw.headers)) {
+      c.set("anonymous_caller", true); // the route reads the body itself, after its own cheaper checks
+      return next();
+    }
+    return signed(c, next);
+  });
 
   /** Liveness probe. Unauthenticated by design: it reads no data and touches no binding. */
   app.get("/api/v1/health", (c) => c.json({ success: true, service: "achromat-mom" }));

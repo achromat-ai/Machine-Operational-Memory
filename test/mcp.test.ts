@@ -150,7 +150,8 @@ describe("POST /mcp tools/call on an empty corpus", () => {
     expect(text(result).startsWith(NOTICE)).toBe(true);
     expect(text(result).endsWith(NOTICE)).toBe(true);
     expect(harness.analytics.points).toEqual([
-      { indexes: ["anonymous"], blobs: ["mcp_sandbox_recall", "fintech", "dispatch_wire", "anonymous", "empty"], doubles: [1] },
+      // Its own index, so a flood of sandbox calls cannot raise the sampling rate of skill_view and challenge_issued.
+      { indexes: ["mcp_sandbox_recall"], blobs: ["mcp_sandbox_recall", "fintech", "dispatch_wire", "anonymous", "empty"], doubles: [1] },
     ]);
   });
 });
@@ -363,7 +364,7 @@ describe("POST /mcp tools/call achromat_recall", () => {
     expect(world.embedder.calls).toHaveLength(0);
     expect(world.store.queryCalls).toHaveLength(0);
     expect(harness.analytics.points.at(-1)).toEqual({
-      indexes: ["anonymous"],
+      indexes: ["mcp_sandbox_recall"],
       blobs: ["mcp_sandbox_recall", "fintech", "dispatch_wire", "anonymous", "sample"],
       doubles: [1],
     });

@@ -556,6 +556,34 @@ export const RecallResponse = z.union([
 ]);
 export type RecallResponse = z.output<typeof RecallResponse>;
 
+/**
+ * One lesson as an UNSIGNED recall serves it: the public feed's fields, always approved, and no receipts and no
+ * attestation (the feed omits them on purpose, and an anonymous caller gets no more than the feed gives). It never
+ * carries the blocked call's values, the upstream rule name or who submitted it. Strict, like RecallLesson.
+ */
+export const AnonymousRecallLesson = z.strictObject({
+  lesson_id: z.string(),
+  review_status: z.literal("approved"),
+  domain: z.string(),
+  tool: z.string(),
+  steering_directive: z.string().nullable(),
+  statutory_anchor: z.string().nullable(),
+  compliant_arguments: z.record(z.string(), z.json()),
+  changed_paths: z.array(z.string()),
+});
+/** POST /api/v1/recall without a signature. A miss carries no `budget_exhausted`: an anonymous caller has no daily budget. */
+export const AnonymousRecallResponse = z.union([
+  z.strictObject({
+    success: z.literal(true),
+    match: z.literal(true),
+    tier: z.enum(["exact", "semantic"]),
+    score: z.number(),
+    lesson: AnonymousRecallLesson,
+  }),
+  z.strictObject({ success: z.literal(true), match: z.literal(false) }),
+]);
+export type AnonymousRecallResponse = z.output<typeof AnonymousRecallResponse>;
+
 // ════════════════════════════════════════════════════════════════════════
 // GET /api/v1/feed response (public, unsigned; strict for the same reason as RecallLesson)
 // ════════════════════════════════════════════════════════════════════════

@@ -32,7 +32,8 @@ describe("telemetry: /recall", () => {
 
     const agentId = await anonymiseAgentKey(key);
     expect(world.analytics.points).toEqual([
-      { indexes: [agentId], blobs: ["recall", DOMAIN, TOOL, agentId, "miss"], doubles: [1] },
+      // blobs[5] ref "", blobs[6] why it missed (nothing public exists for this tool in this file), blobs[7] the caller label.
+      { indexes: [agentId], blobs: ["recall", DOMAIN, TOOL, agentId, "miss", "", "tool_unknown", "other"], doubles: [1] },
     ]);
     const serialised = JSON.stringify(world.analytics.points);
     expect(serialised).not.toContain(key);
@@ -49,7 +50,7 @@ describe("telemetry: /recall", () => {
     expect(json.match).toBe(true);
     const agentId = await anonymiseAgentKey(key);
     expect(world.analytics.points).toEqual([
-      { indexes: [agentId], blobs: ["recall", DOMAIN, TOOL, agentId, "hit"], doubles: [1] },
+      { indexes: [agentId], blobs: ["recall", DOMAIN, TOOL, agentId, "hit", "", "", "other"], doubles: [1] },
     ]);
   });
 
