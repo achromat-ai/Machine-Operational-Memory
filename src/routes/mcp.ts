@@ -71,9 +71,9 @@ export const SANDBOX_DOMAINS = ["fintech", "industrial_iot", "devsecops", "contr
 
 /**
  * The npm package's achromat_recall inputSchema, exactly as its tools/list advertises it (@achromat-ai/mcp-server
- * 0.1.1, the JSON Schema its SDK generates from src/tools.ts recallInput). Keep it identical: an agent that learnt
- * the call here must be able to make the same call against the full server. The one exception is the domain enum,
- * which lists the served domains (SANDBOX_DOMAINS) and leads the package until its next release names the same ones.
+ * 0.1.6, the JSON Schema its SDK generates from src/tools.ts recallInput). Keep it identical: an agent that learnt
+ * the call here must be able to make the same call against the full server. A test holds an independent copy of
+ * the package's schema and compares the two.
  */
 export const RECALL_INPUT_SCHEMA = {
   $schema: "http://json-schema.org/draft-07/schema#",
@@ -89,7 +89,8 @@ export const RECALL_INPUT_SCHEMA = {
       minLength: 1,
       maxLength: 64,
       pattern: "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$",
-      description: "The exact name of the tool you are about to call, for example dispatch_wire.",
+      description:
+        "The exact name of the tool you are about to call, for example dispatch_wire. Matching is exact on domain and tool name; lessons exist only for the names listed in the achromat_recall description, and any other name returns no match.",
     },
     task_description: {
       type: "string",

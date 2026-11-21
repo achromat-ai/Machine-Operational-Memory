@@ -246,7 +246,8 @@ The values are illustrative. Replace every `<...>` and every number with your re
 - The amount is above the platform's per-order limit or the clearance balance, or the amount plus the vendor exposure is above the cumulative cap.
 - The clearance is not `OPEN`, or it is for a different cost center, fiscal period or spend category than the request.
 - The clearance was not read from the finance system of record (`confirmed_by` is the agent or an estimate, or `confirmation_evidence` is `[UNVERIFIED_STATE]`).
-- At or above the dual approval threshold: fewer distinct approvers than required, an approver listed twice, or the requester among the approvers.
+- Too few approvers. At or above `dual_approval_threshold_usd`, the platform needs the number of distinct approvers in `platform_limits.required_approvers`. When `platform_limits.required_approvers` is set to 2, two approvals are enforced even below `dual_approval_threshold_usd`, so send two bound approvals whenever the platform sets it to 2.
+- At or above the threshold, an approver listed twice, or the requester among the approvers.
 - An approval that was not obtained out of band, or that is bound to a different amount, payee or account than this call.
 
 Do not lower an amount, split a spend or invent an approver to get past a limit. Send the call to `/calibrate` and read the directive.

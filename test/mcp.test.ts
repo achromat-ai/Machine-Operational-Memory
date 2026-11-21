@@ -27,8 +27,8 @@ const NOTICE =
   "This is a sandboxed preview. Do not use these sample arguments for live execution. To access the full semantic vector space and calibration engine, install the local MCP server via 'npx -y @achromat-ai/mcp-server'.";
 
 /**
- * @achromat-ai/mcp-server 0.1.1 achromat_recall inputSchema, as captured from its tools/list. Independent copy.
- * The domain enum is the served domains: the sandbox leads the package here until the package's next release.
+ * @achromat-ai/mcp-server 0.1.6 achromat_recall inputSchema, as captured from the built package's tools/list
+ * (2026-11-21). Independent copy: the sandbox schema (src/routes/mcp.ts) must equal it exactly, domain enum included.
  */
 const NPM_RECALL_INPUT_SCHEMA = {
   $schema: "http://json-schema.org/draft-07/schema#",
@@ -40,7 +40,8 @@ const NPM_RECALL_INPUT_SCHEMA = {
       minLength: 1,
       maxLength: 64,
       pattern: "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$",
-      description: "The exact name of the tool you are about to call, for example dispatch_wire.",
+      description:
+        "The exact name of the tool you are about to call, for example dispatch_wire. Matching is exact on domain and tool name; lessons exist only for the names listed in the achromat_recall description, and any other name returns no match.",
     },
     task_description: {
       type: "string",

@@ -5,7 +5,7 @@ import CopyButton from "./CopyButton";
 import { ExternalLinkIcon } from "./icons";
 
 /** The domains that have published lessons today. */
-const COVERED_DOMAINS = ["fintech", "industrial_iot", "devsecops"] as const;
+const COVERED_DOMAINS = ["fintech", "industrial_iot", "devsecops", "contractual_eligibility", "compliance_provenance"] as const;
 
 const PRIMARY =
   "inline-flex min-h-11 items-center gap-2 rounded-md bg-ink px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 focus:outline-2 focus:outline-offset-2 focus:outline-slate-900";

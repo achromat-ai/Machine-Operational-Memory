@@ -507,7 +507,7 @@ describe("Hero and site chrome", () => {
     expect(html).toContain("(opens in a new tab)");
     expect(html).toContain("Copy agent prompt");
     expect(html).toContain("Example lesson");
-    for (const domain of ["Fintech and banking", "Industrial IoT", "DevSecOps"]) expect(html).toContain(domain);
+    for (const domain of ["Fintech and banking", "Industrial IoT", "DevSecOps", "Contractual eligibility", "Compliance provenance"]) expect(html).toContain(domain);
     expect(html).not.toContain("Robotics");
   });
 
