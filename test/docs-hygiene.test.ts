@@ -8,6 +8,8 @@
  */
 import { describe, expect, it } from "vitest";
 import readme from "../README.md";
+import complianceProvenance from "../public/compliance_provenance.md";
+import contractualEligibility from "../public/contractual_eligibility.md";
 import devsecops from "../public/devsecops.md";
 import fintech from "../public/fintech.md";
 import industrialIot from "../public/industrial_iot.md";
@@ -30,12 +32,14 @@ const FORBIDDEN_TERMS = [
   "ramen",
 ] as const;
 
-/** The core protocol and the three domain references are all served publicly, so all four get the full scan. */
+/** The core protocol and the five domain references are all served publicly, so all six get the full scan. */
 const SKILL_DOCS = [
   ["SKILL.md", skill],
   ["public/fintech.md", fintech],
   ["public/industrial_iot.md", industrialIot],
   ["public/devsecops.md", devsecops],
+  ["public/contractual_eligibility.md", contractualEligibility],
+  ["public/compliance_provenance.md", complianceProvenance],
 ] as const;
 
 const PUBLIC_DOCS = [["README.md", readme], ...SKILL_DOCS] as const;
@@ -150,13 +154,43 @@ describe("public documentation covers the agent workflow", () => {
   });
 
   it("keeps the core protocol free of domain tool names, and each reference to its own domain", () => {
-    for (const tool of ["dispatch_wire", "issue_credit_adverse_action", "dispatch_manipulation", "execute_command", "deploy_release", "grant_access"]) {
+    for (const tool of [
+      "dispatch_wire",
+      "issue_credit_adverse_action",
+      "commit_corporate_spend",
+      "approve_expenditure",
+      "release_payment",
+      "dispatch_manipulation",
+      "execute_command",
+      "deploy_release",
+      "grant_access",
+      "approve_eligibility_claim",
+      "confirm_eligibility",
+      "bind_contract_terms",
+      "submit_regulated_record",
+      "submit_filing",
+      "release_report",
+    ]) {
       expect(skill, `skill.md names ${tool}`).not.toContain(tool);
     }
     const references = [
-      ["public/fintech.md", fintech, "fintech", ["dispatch_wire", "issue_credit_adverse_action"], "achromat-mom-fintech"],
+      ["public/fintech.md", fintech, "fintech", ["dispatch_wire", "issue_credit_adverse_action", "release_payment"], "achromat-mom-fintech"],
       ["public/industrial_iot.md", industrialIot, "industrial_iot", ["dispatch_manipulation"], "achromat-mom-industrial-iot"],
       ["public/devsecops.md", devsecops, "devsecops", ["execute_command", "deploy_release", "grant_access"], "achromat-mom-devsecops"],
+      [
+        "public/contractual_eligibility.md",
+        contractualEligibility,
+        "contractual_eligibility",
+        ["approve_eligibility_claim", "confirm_eligibility", "bind_contract_terms"],
+        "achromat-mom-contractual-eligibility",
+      ],
+      [
+        "public/compliance_provenance.md",
+        complianceProvenance,
+        "compliance_provenance",
+        ["submit_regulated_record", "submit_filing", "release_report"],
+        "achromat-mom-compliance-provenance",
+      ],
     ] as const;
     for (const [name, text, domain, tools, skillName] of references) {
       expect(text.startsWith(`---\nname: ${skillName}\n`), `${name} front matter`).toBe(true);
@@ -167,8 +201,10 @@ describe("public documentation covers the agent workflow", () => {
     }
   });
 
-  it("links the core protocol to all three domain references", () => {
-    for (const path of ["/fintech.md", "/industrial_iot.md", "/devsecops.md"]) expect(skill, path).toContain(`https://achromat.ai${path}`);
+  it("links the core protocol to all five domain references", () => {
+    for (const path of ["/fintech.md", "/industrial_iot.md", "/devsecops.md", "/contractual_eligibility.md", "/compliance_provenance.md"]) {
+      expect(skill, path).toContain(`https://achromat.ai${path}`);
+    }
   });
 
   it("no public document exposes a shared, global capacity figure", () => {

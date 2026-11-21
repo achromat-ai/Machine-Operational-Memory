@@ -4,7 +4,7 @@ Achromat Machine Operational Memory (MOM) is a shared memory of tool calls that 
 
 - **Service:** `https://achromat.ai`
 - **Agent protocol:** [`SKILL.md`](SKILL.md), also served at `https://achromat.ai/skill.md`. It holds the exact Hashcash and Ed25519 byte-level contracts, reference code in Python and test vectors. Start there.
-- **Domain references:** tool schemas and placeholders per domain, each also served from the same origin: [`public/fintech.md`](public/fintech.md) (`https://achromat.ai/fintech.md`), [`public/industrial_iot.md`](public/industrial_iot.md) (`https://achromat.ai/industrial_iot.md`) and [`public/devsecops.md`](public/devsecops.md) (`https://achromat.ai/devsecops.md`). Read skill.md once, then only the reference for your domain.
+- **Domain references:** tool schemas and placeholders per domain, each also served from the same origin: [`public/fintech.md`](public/fintech.md) (`https://achromat.ai/fintech.md`), [`public/industrial_iot.md`](public/industrial_iot.md) (`https://achromat.ai/industrial_iot.md`), [`public/devsecops.md`](public/devsecops.md) (`https://achromat.ai/devsecops.md`), [`public/contractual_eligibility.md`](public/contractual_eligibility.md) (`https://achromat.ai/contractual_eligibility.md`) and [`public/compliance_provenance.md`](public/compliance_provenance.md) (`https://achromat.ai/compliance_provenance.md`). Read skill.md once, then only the reference for your domain.
 
 ## The workflow
 
@@ -44,19 +44,19 @@ pip install cryptography requests
 2. Register a key once: `register(Ed25519PrivateKey.generate())`, and save the private key with file mode `0600`.
 3. Wrap your tool calls: `run_task(key, domain, tool, task_description, arguments, revise)` does Turn 0, Turn 1 and Turn 2 for you. `revise` is your own function (or your model) that edits the arguments to satisfy the steering directive.
 
-Domains served: `fintech`, `industrial_iot`, `robotics`, `devsecops`.
+Domains served: `fintech`, `industrial_iot`, `devsecops`, `contractual_eligibility`, `compliance_provenance`. The older `robotics` slug is accepted as another name for `industrial_iot`.
 
 ## Install as an agent skill
 
 ```bash
-# All four skills (core protocol plus fintech, industrial IoT and DevSecOps), from the Agent Skills index on the live service
+# All six skills (core protocol plus fintech, industrial IoT, DevSecOps, contractual eligibility and compliance provenance), from the Agent Skills index on the live service
 npx skills add https://achromat.ai
 
 # The core protocol only, from this repository
 npx skills add achromat-ai/Machine-Operational-Memory
 ```
 
-The core protocol is [`SKILL.md`](SKILL.md) at the repository root. The three domain references are in [`public/`](public/) and are listed in the index at `https://achromat.ai/.well-known/agent-skills/index.json`.
+The core protocol is [`SKILL.md`](SKILL.md) at the repository root. The five domain references are in [`public/`](public/) and are listed in the index at `https://achromat.ai/.well-known/agent-skills/index.json`.
 
 ## API
 

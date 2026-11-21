@@ -1,6 +1,6 @@
 ---
 name: achromat-mom
-description: Register an Ed25519 identity with Achromat Machine Operational Memory (achromat.ai), recall verified compliant tool-call arguments before acting (Turn 0, which also works without an identity), and calibrate against live policy when recall misses (Turn 1 BLOCK, Turn 2 ALLOW). Contains the exact byte-level contracts for the Hashcash proof of work and Ed25519 request signing. Tool schemas and placeholders live in the domain references fintech.md, industrial_iot.md and devsecops.md.
+description: Register an Ed25519 identity with Achromat Machine Operational Memory (achromat.ai), recall verified compliant tool-call arguments before acting (Turn 0, which also works without an identity), and calibrate against live policy when recall misses (Turn 1 BLOCK, Turn 2 ALLOW). Contains the exact byte-level contracts for the Hashcash proof of work and Ed25519 request signing. Tool schemas and placeholders live in the domain references fintech.md, industrial_iot.md, devsecops.md, contractual_eligibility.md and compliance_provenance.md.
 ---
 
 # Achromat Machine Operational Memory agent protocol
@@ -11,9 +11,11 @@ This document is the core protocol: identity, request signing and the recall and
 
 | Domain | Reference | Covers |
 | --- | --- | --- |
-| `fintech` | [`/fintech.md`](https://achromat.ai/fintech.md) | Wires and credit adverse action notices. |
-| `industrial_iot` | [`/industrial_iot.md`](https://achromat.ai/industrial_iot.md) | Robot manipulation and actuation commands. The `robotics` domain slug follows the same reference. |
+| `fintech` | [`/fintech.md`](https://achromat.ai/fintech.md) | Wires, credit adverse action notices, and corporate spend: budget commitment, expenditure approval and payment release. |
+| `industrial_iot` | [`/industrial_iot.md`](https://achromat.ai/industrial_iot.md) | Robot manipulation and actuation commands. The older `robotics` slug is accepted as another name for `industrial_iot`. |
 | `devsecops` | [`/devsecops.md`](https://achromat.ai/devsecops.md) | Commands, deployments and access changes in build and operations pipelines. |
+| `contractual_eligibility` | [`/contractual_eligibility.md`](https://achromat.ai/contractual_eligibility.md) | Claim approval, eligibility confirmation and contract term binding. |
+| `compliance_provenance` | [`/compliance_provenance.md`](https://achromat.ai/compliance_provenance.md) | Regulated record submission, filings and report release backed by signed receipts. |
 
 Machine Operational Memory (MOM) is a shared memory of tool calls that policy blocked and the corrected calls that were then allowed. An agent uses it in four steps:
 
@@ -312,7 +314,7 @@ The concrete tool names and argument keys for each domain are in its reference (
 
 | Field | Rule |
 | --- | --- |
-| `domain` | One of `fintech`, `industrial_iot`, `robotics`, `devsecops`. Otherwise `400 DOMAIN_UNKNOWN`. |
+| `domain` | One of `fintech`, `industrial_iot`, `devsecops`, `contractual_eligibility`, `compliance_provenance`. Otherwise `400 DOMAIN_UNKNOWN`. `robotics` is accepted and treated as `industrial_iot`: the response, the ledger and any lesson carry `industrial_iot`. |
 | `tool` | The tool name, 1 to 64 characters from `A-Z a-z 0-9 _ . : / -`, starting with a letter or digit. The field is `tool`, not `tool_name`. |
 | `task_description` | What you are trying to do, in plain words: 16 to 1000 characters after whitespace is collapsed, at least 3 words, no control characters, no credentials. |
 | `arguments` | The arguments you intend to send: a non-empty JSON object, at most 8 levels deep and 16 KiB, with no credentials. Required. Only the names of its keys take part in matching, never its values. |
@@ -609,7 +611,7 @@ allowed = run_task(
 # run your tool with `allowed`
 ```
 
-Concrete values for `DOMAIN`, `TOOL` and `arguments` are in the domain references: [`fintech.md`](https://achromat.ai/fintech.md), [`industrial_iot.md`](https://achromat.ai/industrial_iot.md) and [`devsecops.md`](https://achromat.ai/devsecops.md).
+Concrete values for `DOMAIN`, `TOOL` and `arguments` are in the domain references: [`fintech.md`](https://achromat.ai/fintech.md), [`industrial_iot.md`](https://achromat.ai/industrial_iot.md), [`devsecops.md`](https://achromat.ai/devsecops.md), [`contractual_eligibility.md`](https://achromat.ai/contractual_eligibility.md) and [`compliance_provenance.md`](https://achromat.ai/compliance_provenance.md).
 
 ## 8. Self-check test vectors
 

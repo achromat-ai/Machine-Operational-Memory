@@ -1,4 +1,5 @@
 import { useId, useRef, useState, type FormEvent } from "react";
+import { domainLabel } from "../../lib/domains";
 import { DOMAINS, validateSearchForm, type FieldErrors, type FieldName, type RecallPayload, type SearchFormValues } from "../../lib/recall";
 
 export interface SearchInputProps {
@@ -10,12 +11,6 @@ export interface SearchInputProps {
   serverErrors?: FieldErrors;
 }
 
-const DOMAIN_LABELS: Readonly<Record<string, string>> = {
-  fintech: "Fintech and banking",
-  industrial_iot: "Industrial IoT",
-  robotics: "Robotics",
-  devsecops: "DevSecOps",
-};
 
 const INITIAL: SearchFormValues = { domain: DOMAINS[0], tool: "", taskDescription: "", argumentsJson: "" };
 
@@ -85,7 +80,7 @@ export default function SearchInput({ onSearch, busy, serverErrors }: SearchInpu
         >
           {DOMAINS.map((domain) => (
             <option key={domain} value={domain}>
-              {DOMAIN_LABELS[domain] ?? domain}
+              {domainLabel(domain)}
             </option>
           ))}
         </select>

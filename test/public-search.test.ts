@@ -75,6 +75,15 @@ describe("GET /api/v1/search: results", () => {
     expect(options.filter).toEqual({ visibility: { $in: ["public"] } });
   });
 
+  it("searches robotics as industrial_iot, and accepts the two new domains", async () => {
+    const world = await freshWorld();
+    expect((await get(world, { domain: "robotics", q: "move the arm to the pick station" })).status).toBe(200);
+    expect(world.store.queryCalls[0]!.options.namespace).toBe("industrial_iot");
+    for (const domain of ["contractual_eligibility", "compliance_provenance"]) {
+      expect((await get(world, { domain, q: "approve the submitted claim" })).status, domain).toBe(200);
+    }
+    expect(world.store.queryCalls.map((call) => call.options.namespace)).toEqual(["industrial_iot", "contractual_eligibility", "compliance_provenance"]);
+  });
   it("finds lessons of any tool in the domain, best match first", async () => {
     const world = await freshWorld();
     const owner = await community();

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MOM_ATTESTATION_KID, MOM_ATTESTATION_PUBLIC_KEYS } from "../src/crypto/attestation";
 import {
   AGENT_SKILL_TYPE,
@@ -22,7 +22,17 @@ import {
   MCP_CARD_TYPE,
   MCP_PACKAGE,
   MCP_SERVER_CARD,
-  MCP_SERVER_VERSION,
+  MCP_REGISTRY_LATEST_URL,
+  MCP_REGISTRY_NAME,
+  MCP_VERSION_CACHE_MS,
+  MCP_VERSION_RETRY_MS,
+  MCP_VERSIONS_FALLBACK,
+  catalogFor,
+  mcpServerCard,
+  parseRegistryVersions,
+  primeMcpVersions,
+  resetMcpVersions,
+  resolveMcpVersions,
   ROBOTS_PATH,
   ROBOTS_TXT,
   SITE_ORIGIN,
@@ -279,11 +289,15 @@ describe("the ARD catalog", () => {
       "urn:air:achromat.ai:skill:achromat-mom-fintech",
       "urn:air:achromat.ai:skill:achromat-mom-industrial-iot",
       "urn:air:achromat.ai:skill:achromat-mom-devsecops",
+      "urn:air:achromat.ai:skill:achromat-mom-contractual-eligibility",
+      "urn:air:achromat.ai:skill:achromat-mom-compliance-provenance",
     ]);
     const domains = [
       ["achromat-mom-fintech", "/fintech.md", "fintech"],
       ["achromat-mom-industrial-iot", "/industrial_iot.md", "industrial_iot"],
       ["achromat-mom-devsecops", "/devsecops.md", "devsecops"],
+      ["achromat-mom-contractual-eligibility", "/contractual_eligibility.md", "contractual_eligibility"],
+      ["achromat-mom-compliance-provenance", "/compliance_provenance.md", "compliance_provenance"],
     ] as const;
     for (const [name, path, domain] of domains) {
       const entry = skills.find((candidate) => candidate.identifier === `urn:air:achromat.ai:skill:${name}`) as Record<string, unknown> | undefined;
@@ -292,7 +306,7 @@ describe("the ARD catalog", () => {
       expect((entry!.metadata as Record<string, unknown>).domain, name).toBe(domain);
       expect((entry!.metadata as Record<string, unknown>).coreProtocol, name).toBe(`${SITE_ORIGIN}${SKILL_PATH}`);
       expect(entry!.capabilities, name).toEqual(["RecallCompliantArguments", "CalibratePolicy"]);
-      expect((entry!.tags as string[]).includes(domain === "industrial_iot" ? "industrial-iot" : domain), name).toBe(true);
+      expect((entry!.tags as string[]).includes(domain.replaceAll("_", "-")), name).toBe(true);
       const served = await call(path);
       expect(served.status, path).toBe(200);
       expect(served.headers.get("Content-Type"), path).toBe("text/plain; charset=utf-8");
@@ -579,7 +593,7 @@ describe("GET /.well-known/mcp/server-card.json", () => {
     expect(card.description.length).toBeGreaterThanOrEqual(1);
     expect(card.description.length).toBeLessThanOrEqual(500);
     expect(card.title.length).toBeLessThanOrEqual(100);
-    expect(card.version).toBe(MCP_SERVER_VERSION);
+    expect(card.version).toBe(MCP_VERSIONS_FALLBACK.server);
     expect(card.version).not.toMatch(/[\^~><*x]/); // no ranges
     expect(() => new URL(card.websiteUrl)).not.toThrow();
     for (const icon of card.icons) expect(icon.src.startsWith(`${SITE_ORIGIN}/`)).toBe(true);
@@ -594,7 +608,7 @@ describe("GET /.well-known/mcp/server-card.json", () => {
     const distribution = meta["ai.achromat/distribution"];
     expect(distribution.registryType).toBe("npm");
     expect(distribution.identifier).toBe(MCP_PACKAGE);
-    expect(distribution.version).toBe(MCP_SERVER_VERSION);
+    expect(distribution.version).toBe(MCP_VERSIONS_FALLBACK.package);
     expect(distribution.transport).toEqual({ type: "stdio" });
     expect(distribution.args).toContain(MCP_PACKAGE);
   });
@@ -612,8 +626,8 @@ describe("the expanded ARD catalog", () => {
   it("publishes every skill twice: once as ARD's agent skill type, once as ai-skill, same document", () => {
     const standard = entries.filter((entry) => entry.type === AGENT_SKILL_TYPE);
     const twins = entries.filter((entry) => entry.type === AI_SKILL_TYPE);
-    expect(standard.length).toBe(4);
-    expect(twins.length).toBe(4);
+    expect(standard.length).toBe(6);
+    expect(twins.length).toBe(6);
     // The base protocol stays first: other tests and clients read entries[0].
     expect(entries[0]!.identifier).toBe("urn:air:achromat.ai:skill:achromat-mom");
     for (const original of standard) {
@@ -627,6 +641,8 @@ describe("the expanded ARD catalog", () => {
       "urn:air:achromat.ai:ai-skill:achromat-mom-fintech",
       "urn:air:achromat.ai:ai-skill:achromat-mom-industrial-iot",
       "urn:air:achromat.ai:ai-skill:achromat-mom-devsecops",
+      "urn:air:achromat.ai:ai-skill:achromat-mom-contractual-eligibility",
+      "urn:air:achromat.ai:ai-skill:achromat-mom-compliance-provenance",
     ]);
   });
 
@@ -647,9 +663,9 @@ describe("the expanded ARD catalog", () => {
     expect("data" in entry).toBe(false);
   });
 
-  it("has ten entries in all, every identifier unique", () => {
-    expect(entries.length).toBe(10);
-    expect(new Set(entries.map((entry) => entry.identifier)).size).toBe(10);
+  it("has fourteen entries in all, every identifier unique", () => {
+    expect(entries.length).toBe(14);
+    expect(new Set(entries.map((entry) => entry.identifier)).size).toBe(14);
   });
 
   it("puts the trustManifest on the host and on every entry, and never at the document root", () => {
@@ -657,7 +673,7 @@ describe("the expanded ARD catalog", () => {
     // The AI Catalog schema rejects any root member other than specVersion, host and entries.
     expect(Object.keys(parsed).sort()).toEqual(["entries", "host", "specVersion"]);
     expect(parsed.host.trustManifest).toEqual(TRUST_MANIFEST);
-    expect(parsed.entries.length).toBe(10);
+    expect(parsed.entries.length).toBe(14);
     for (const entry of parsed.entries) expect(entry.trustManifest, String(entry.identifier)).toEqual(TRUST_MANIFEST);
   });
 
@@ -677,5 +693,111 @@ describe("the expanded ARD catalog", () => {
     expect(TRUST_MANIFEST.trustSchema.identifier).toBe("https://www.w3.org/TR/did-core/");
     expect(TRUST_MANIFEST.trustSchema.version).toBe("1.0");
     expect(TRUST_MANIFEST.trustSchema.verificationMethods).toEqual(["did"]);
+  });
+});
+
+// ───────────────────────── the MCP server version, read from the Official MCP Registry ─────────────────────────
+
+/** A registry "latest" record for this server, in the shape registry.modelcontextprotocol.io answers with. */
+function registryRecord(server: string, npm: string | null, name = MCP_REGISTRY_NAME) {
+  return {
+    server: {
+      name,
+      version: server,
+      packages: npm === null ? [] : [{ registryType: "npm", identifier: MCP_PACKAGE, version: npm, transport: { type: "stdio" } }],
+    },
+    _meta: { "io.modelcontextprotocol.registry/official": { status: "active", isLatest: true } },
+  };
+}
+
+describe("the MCP server version on the catalog and the card", () => {
+  let registry: (() => Response | Promise<Response>) | null;
+  let registryCalls: number;
+
+  beforeEach(() => {
+    resetMcpVersions();
+    registry = null;
+    registryCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url !== MCP_REGISTRY_LATEST_URL) throw new Error(`unexpected fetch ${url}`);
+      registryCalls++;
+      if (registry === null) throw new Error("registry not stubbed");
+      return registry();
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    primeMcpVersions(MCP_VERSIONS_FALLBACK, Number.POSITIVE_INFINITY);
+  });
+
+  it("states the registry's latest listing version on the card, the catalog entry and the npm distribution", async () => {
+    registry = () => Response.json(registryRecord("0.1.9", "0.1.7"));
+    const card = JSON.parse(await (await call(MCP_CARD_PATH)).text());
+    expect(card.version).toBe("0.1.9");
+    expect(card._meta["ai.achromat/distribution"].version).toBe("0.1.7");
+    expect(card).toEqual(mcpServerCard({ server: "0.1.9", package: "0.1.7" }));
+    for (const path of [ARD_PATH, AI_CATALOG_PATH]) {
+      const body = await (await call(path)).text();
+      expect(JSON.parse(body), path).toEqual(JSON.parse(JSON.stringify(catalogFor({ server: "0.1.9", package: "0.1.7" }))));
+      const entry = JSON.parse(body).entries.find((candidate: { type: string }) => candidate.type === MCP_CARD_TYPE);
+      expect(entry.version, path).toBe("0.1.9");
+    }
+  });
+
+  it("asks the registry once per 15 minutes, and concurrent requests share the one lookup", async () => {
+    registry = () => Response.json(registryRecord("0.1.9", "0.1.7"));
+    await Promise.all([call(MCP_CARD_PATH), call(ARD_PATH), call(AI_CATALOG_PATH)]);
+    await call(MCP_CARD_PATH);
+    expect(registryCalls).toBe(1);
+    registry = () => Response.json(registryRecord("0.2.0", "0.2.0"));
+    expect(await resolveMcpVersions(Date.now() + MCP_VERSION_CACHE_MS - 5_000)).toEqual({ server: "0.1.9", package: "0.1.7" });
+    expect(registryCalls).toBe(1);
+    expect(await resolveMcpVersions(Date.now() + MCP_VERSION_CACHE_MS + 1_000)).toEqual({ server: "0.2.0", package: "0.2.0" });
+    expect(registryCalls).toBe(2);
+  });
+
+  it("falls back to the built-in versions when the registry fails, and never fails the document", async () => {
+    const failures: Array<() => Response | Promise<Response>> = [
+      () => new Response("unavailable", { status: 503 }),
+      () => new Response("not json", { status: 200 }),
+      () => Response.json(registryRecord("0.1.9", "0.1.7", "someone.else/server")),
+      () => Response.json(registryRecord("^0.1.9", "0.1.7")),
+      () => Response.json({ servers: [] }),
+      () => Promise.reject(new TypeError("network down")),
+    ];
+    for (const failure of failures) {
+      resetMcpVersions();
+      registry = failure;
+      for (const path of [MCP_CARD_PATH, ARD_PATH, AI_CATALOG_PATH]) {
+        const response = await call(path);
+        expect(response.status, path).toBe(200);
+        expect(response.headers.get("Cache-Control"), path).toBe("public, max-age=300");
+      }
+      expect(await (await call(MCP_CARD_PATH)).text()).toBe(MCP_CARD_BODY);
+      expect(await (await call(ARD_PATH)).text()).toBe(CATALOG_BODY);
+    }
+  });
+
+  it("keeps the last versions it read when a later lookup fails, and retries after a minute", async () => {
+    registry = () => Response.json(registryRecord("0.1.9", "0.1.7"));
+    await resolveMcpVersions();
+    registry = () => new Response("unavailable", { status: 503 });
+    expect(await resolveMcpVersions(Date.now() + MCP_VERSION_CACHE_MS + 1_000)).toEqual({ server: "0.1.9", package: "0.1.7" });
+    const calls = registryCalls;
+    expect(await resolveMcpVersions(Date.now() + MCP_VERSION_RETRY_MS - 5_000)).toEqual({ server: "0.1.9", package: "0.1.7" });
+    expect(registryCalls).toBe(calls);
+    registry = () => Response.json(registryRecord("0.2.1", "0.2.1"));
+    expect(await resolveMcpVersions(Date.now() + MCP_VERSION_RETRY_MS + 1_000)).toEqual({ server: "0.2.1", package: "0.2.1" });
+  });
+
+  it("reads only an exact version of this server, and keeps the fallback npm version when the package is not listed", () => {
+    expect(parseRegistryVersions(registryRecord("0.1.6", "0.1.5"))).toEqual({ server: "0.1.6", package: "0.1.5" });
+    expect(parseRegistryVersions(registryRecord("1.2.3-beta.1", null))).toEqual({ server: "1.2.3-beta.1", package: MCP_VERSIONS_FALLBACK.package });
+    expect(parseRegistryVersions(registryRecord("0.1.6", "latest"))).toEqual({ server: "0.1.6", package: MCP_VERSIONS_FALLBACK.package });
+    for (const bad of [null, "x", [], {}, { server: null }, registryRecord("v0.1.6", "0.1.5"), registryRecord("0.1", "0.1.5"), registryRecord("0.1.6", "0.1.5", "ai.achromat/other")]) {
+      expect(parseRegistryVersions(bad)).toBeNull();
+    }
   });
 });

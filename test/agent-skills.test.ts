@@ -58,9 +58,16 @@ describe("GET /.well-known/agent-skills/index.json", () => {
     }
   });
 
-  it("lists the core protocol first and then the three domain references, by name", async () => {
+  it("lists the core protocol first and then the five domain references, by name", async () => {
     const { body } = await fetchIndex();
-    expect(body.skills.map((skill) => skill.name)).toEqual(["achromat-mom", "achromat-mom-fintech", "achromat-mom-industrial-iot", "achromat-mom-devsecops"]);
+    expect(body.skills.map((skill) => skill.name)).toEqual([
+      "achromat-mom",
+      "achromat-mom-fintech",
+      "achromat-mom-industrial-iot",
+      "achromat-mom-devsecops",
+      "achromat-mom-contractual-eligibility",
+      "achromat-mom-compliance-provenance",
+    ]);
     expect(body.skills.map((skill) => skill.url)).toEqual(SKILL_PATHS.map((path) => `${SITE_ORIGIN}${path}`));
   });
 
@@ -102,7 +109,7 @@ describe("GET /.well-known/agent-skills/index.json", () => {
 
   it("builds the same body every time, and rejects nothing in the real documents", async () => {
     expect(await agentSkillsIndexBody()).toBe(await agentSkillsIndexBody());
-    expect(agentSkills()).toHaveLength(4);
+    expect(agentSkills()).toHaveLength(6);
   });
 });
 

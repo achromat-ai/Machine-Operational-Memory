@@ -4,7 +4,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { fakeSearch } from "./fixtures/search";
 import { pairAttestationMessage } from "../src/crypto/attestation";
-import { POLICY_FINTECH_CREDIT_ADVERSE_ACTION, POLICY_FINTECH_WIRE } from "../src/config/domains";
+import {
+  POLICY_COMPLIANCE_PROVENANCE,
+  POLICY_CONTRACTUAL_ELIGIBILITY,
+  POLICY_FINANCIAL_AUTHORIZATION,
+  POLICY_FINTECH_CREDIT_ADVERSE_ACTION,
+  POLICY_FINTECH_WIRE,
+  POLICY_ROBOTICS_MANIPULATION,
+} from "../src/config/domains";
 import { GLOBAL_USAGE_KEY, HOUR_MS, agentUsageKey } from "../src/routes/calibrate";
 import { canonicalJson, decodeBase64url, encodeBase64url, taskFingerprint, toHex } from "../src/schema";
 import {
@@ -427,6 +434,35 @@ describe("POST /api/v1/calibrate: tool-scoped policy routing", () => {
     expect(upstream.requests.map((request) => request.policy_ids)).toEqual([[], []]);
   });
 
+  it("evaluates the corporate spend tools and the two new domains against their own single policy", async () => {
+    const agent = await registeredAgent();
+    const cases = [
+      ["fintech", "release_payment", POLICY_FINANCIAL_AUTHORIZATION, "policies:fintech_financial_authorization", "Release payment to a vendor for an approved equipment order"],
+      ["contractual_eligibility", "confirm_eligibility", POLICY_CONTRACTUAL_ELIGIBILITY, "policies:contractual_eligibility", "Confirm eligibility for a water damage claim under the policy"],
+      ["compliance_provenance", "submit_filing", POLICY_COMPLIANCE_PROVENANCE, "policies:compliance_provenance", "Submit the quarterly control attestation filing to the regulator"],
+    ] as const;
+    const upstream = ramen(...cases.map(([, , policy]) => block({ policyIds: [policy] })));
+    for (const [domain, tool, policy, label, description] of cases) {
+      const { status, json } = await calibrateCall(agent, body({ domain, tool, task_description: description }));
+      expect(status, domain).toBe(200);
+      expect(json, domain).toMatchObject({ verdict: "BLOCK", bundle_id: label, policy_ids: [policy], trap: { recorded: true } });
+    }
+    expect(upstream.requests.map((request) => request.policy_ids)).toEqual(cases.map(([, , policy]) => [policy]));
+    expect(upstream.requests.map((request) => request.bundle_ids)).toEqual([[], [], []]);
+  });
+  it("calibrates a robotics call as industrial_iot: same policy route, and the trap is stored under industrial_iot", async () => {
+    const agent = await registeredAgent();
+    const upstream = ramen(block({ policyIds: [POLICY_ROBOTICS_MANIPULATION] }));
+    const { status, json } = await calibrateCall(
+      agent,
+      body({ domain: "robotics", tool: "dispatch_manipulation", task_description: "Move the collaborative arm to the pick station at reduced speed", arguments: { speed_mm_s: 900 } }),
+    );
+    expect(status).toBe(200);
+    expect(json).toMatchObject({ verdict: "BLOCK", bundle_id: "policies:robotics_manipulation", trap: { recorded: true } });
+    expect(upstream.requests[0]!.policy_ids).toEqual([POLICY_ROBOTICS_MANIPULATION]);
+    const trap = await env.DB.prepare("SELECT domain FROM traps WHERE trap_id = ?1").bind(json.trap.trap_id).first<any>();
+    expect(trap).toEqual({ domain: "industrial_iot" });
+  });
   it("still rejects an unserved domain before anything goes upstream, even for a routed tool", async () => {
     const agent = await registeredAgent();
     const upstream = ramen(block());

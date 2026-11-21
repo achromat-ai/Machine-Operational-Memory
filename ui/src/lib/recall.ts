@@ -9,8 +9,10 @@
  */
 import { IdentityError, KeystoreError, UnsupportedBrowserError } from "./identity";
 import type { JsonObject } from "./delta";
+import { DOMAIN_ORDER } from "./domains";
 
-export const DOMAINS = ["fintech", "industrial_iot", "robotics", "devsecops"] as const;
+/** The served domains, in the order the forms list them (lib/domains.ts). */
+export const DOMAINS = DOMAIN_ORDER;
 export type Domain = (typeof DOMAINS)[number];
 
 export const TOOL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,63}$/;

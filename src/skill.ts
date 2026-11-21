@@ -5,6 +5,8 @@
  *   GET /fintech.md         fintech tool schemas and placeholders           (public/fintech.md)
  *   GET /industrial_iot.md  industrial IoT tool schemas and placeholders   (public/industrial_iot.md)
  *   GET /devsecops.md       devsecops tool shapes and placeholders          (public/devsecops.md)
+ *   GET /contractual_eligibility.md  contractual eligibility tool schemas  (public/contractual_eligibility.md)
+ *   GET /compliance_provenance.md    compliance provenance tool schemas    (public/compliance_provenance.md)
  *
  * They are served as text/plain, not text/markdown: browsers show text/plain inline (so the link in the site header
  * opens it in a new tab), while an unfamiliar text subtype is typically downloaded. Agents read the bytes either way.
@@ -13,6 +15,8 @@
  * Hono app, and wrangler.toml lists each path in [assets].run_worker_first so the SPA's not-found handling never
  * answers them first.
  */
+import complianceProvenanceMarkdown from "../public/compliance_provenance.md";
+import contractualEligibilityMarkdown from "../public/contractual_eligibility.md";
 import devsecopsMarkdown from "../public/devsecops.md";
 import fintechMarkdown from "../public/fintech.md";
 import industrialIotMarkdown from "../public/industrial_iot.md";
@@ -23,6 +27,8 @@ export const SKILL_PATH = "/skill.md";
 export const FINTECH_PATH = "/fintech.md";
 export const INDUSTRIAL_IOT_PATH = "/industrial_iot.md";
 export const DEVSECOPS_PATH = "/devsecops.md";
+export const CONTRACTUAL_ELIGIBILITY_PATH = "/contractual_eligibility.md";
+export const COMPLIANCE_PROVENANCE_PATH = "/compliance_provenance.md";
 
 /** The Agent Skills discovery directory (src/agent-skills.ts): the index, and one SKILL.md alias per document. */
 export const AGENT_SKILLS_DIR = "/.well-known/agent-skills";
@@ -34,6 +40,8 @@ export const SKILL_DOCUMENTS: Readonly<Record<string, string>> = Object.freeze({
   [FINTECH_PATH]: fintechMarkdown,
   [INDUSTRIAL_IOT_PATH]: industrialIotMarkdown,
   [DEVSECOPS_PATH]: devsecopsMarkdown,
+  [CONTRACTUAL_ELIGIBILITY_PATH]: contractualEligibilityMarkdown,
+  [COMPLIANCE_PROVENANCE_PATH]: complianceProvenanceMarkdown,
 });
 
 /** The paths of the served documents, for routing and for the robots.txt allow-list. */

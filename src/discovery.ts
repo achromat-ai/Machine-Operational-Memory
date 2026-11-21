@@ -26,7 +26,16 @@
  */
 import { SECURITY_HEADERS } from "./app";
 import { MCP_PATH } from "./routes/mcp";
-import { AGENT_SKILLS_DIR, DEVSECOPS_PATH, FINTECH_PATH, INDUSTRIAL_IOT_PATH, SKILL_PATH, SKILL_PATHS } from "./skill";
+import {
+  AGENT_SKILLS_DIR,
+  COMPLIANCE_PROVENANCE_PATH,
+  CONTRACTUAL_ELIGIBILITY_PATH,
+  DEVSECOPS_PATH,
+  FINTECH_PATH,
+  INDUSTRIAL_IOT_PATH,
+  SKILL_PATH,
+  SKILL_PATHS,
+} from "./skill";
 
 export const ROBOTS_PATH = "/robots.txt";
 export const ARD_PATH = "/.well-known/ard.json";
@@ -123,8 +132,109 @@ export const TRUST_MANIFEST = {
 // ───────────────────────────── MCP server card ─────────────────────────────
 
 export const MCP_PACKAGE = "@achromat-ai/mcp-server";
-/** Keep in step with the published npm package. */
-export const MCP_SERVER_VERSION = "0.1.2";
+/** The server's name in the Official MCP Registry (server.json `name` in the package repository). */
+export const MCP_REGISTRY_NAME = "ai.achromat/mcp-server";
+/** The registry's record of the latest published listing for MCP_REGISTRY_NAME. Public, unauthenticated. */
+export const MCP_REGISTRY_LATEST_URL = `https://registry.modelcontextprotocol.io/v0/servers/${encodeURIComponent(MCP_REGISTRY_NAME)}/versions/latest`;
+
+/**
+ * The two version numbers the discovery documents state. They are separate counters: `server` is the registry
+ * listing's own version (server.json `version`), `package` is the npm release that listing points at
+ * (server.json `packages[0].version`). The listing may run ahead of npm, so the two can differ.
+ */
+export interface McpVersions {
+  readonly server: string;
+  readonly package: string;
+}
+
+/**
+ * What the documents state until the registry has answered, and whenever it cannot be read or answers with
+ * something unexpected. The latest listing at 2026-11-21. A stale value here is harmless: it is replaced as soon as
+ * the registry answers, so it never has to be bumped with a release.
+ */
+export const MCP_VERSIONS_FALLBACK: McpVersions = Object.freeze({ server: "0.1.6", package: "0.1.5" });
+/** How long one registry answer is used before it is fetched again. */
+export const MCP_VERSION_CACHE_MS = 15 * 60_000;
+/** After a failed fetch, how long the last known versions are used before the registry is tried again. */
+export const MCP_VERSION_RETRY_MS = 60_000;
+/** A discovery response never waits longer than this for the registry. */
+export const MCP_REGISTRY_TIMEOUT_MS = 2_000;
+/** The registry record is a few KB; anything far larger is not the record. */
+const MCP_REGISTRY_MAX_BYTES = 256 * 1024;
+
+/** An exact semantic version (no ranges, no leading "v"), as the registry stores it. */
+const EXACT_VERSION = /^\d{1,9}\.\d{1,9}\.\d{1,9}(?:-[0-9A-Za-z.-]{1,64})?(?:\+[0-9A-Za-z.-]{1,64})?$/;
+
+function isRecordLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The versions in a registry record, or null when the record is not the expected server's or holds no usable
+ * server version. A missing or malformed npm package version keeps the fallback's package version.
+ */
+export function parseRegistryVersions(record: unknown): McpVersions | null {
+  const server = isRecordLike(record) ? record.server : undefined;
+  if (!isRecordLike(server) || server.name !== MCP_REGISTRY_NAME) return null;
+  if (typeof server.version !== "string" || !EXACT_VERSION.test(server.version)) return null;
+  const packages = Array.isArray(server.packages) ? server.packages : [];
+  const npm = packages.find((entry): entry is Record<string, unknown> => isRecordLike(entry) && entry.registryType === "npm" && entry.identifier === MCP_PACKAGE);
+  const packageVersion = npm && typeof npm.version === "string" && EXACT_VERSION.test(npm.version) ? npm.version : MCP_VERSIONS_FALLBACK.package;
+  return { server: server.version, package: packageVersion };
+}
+
+let versionCache: { versions: McpVersions; expiresAtMs: number } | null = null;
+let versionRefresh: Promise<McpVersions> | null = null;
+
+/** Sets the cached versions, for tests (and anything that wants to skip the first fetch). */
+export function primeMcpVersions(versions: McpVersions, ttlMs: number, nowMs = Date.now()): void {
+  versionCache = { versions, expiresAtMs: nowMs + ttlMs };
+}
+
+/** Forgets the cached versions, for tests. */
+export function resetMcpVersions(): void {
+  versionCache = null;
+  versionRefresh = null;
+}
+
+async function fetchRegistryVersions(): Promise<McpVersions | null> {
+  try {
+    const response = await fetch(MCP_REGISTRY_LATEST_URL, {
+      headers: { Accept: "application/json", "User-Agent": `achromat-mom (+${SITE_ORIGIN})` },
+      signal: AbortSignal.timeout(MCP_REGISTRY_TIMEOUT_MS),
+      // Cloudflare caches the answer at the edge for the same 15 minutes, so isolates share it.
+      cf: { cacheTtl: MCP_VERSION_CACHE_MS / 1000, cacheEverything: true },
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
+    const text = await response.text();
+    if (text.length > MCP_REGISTRY_MAX_BYTES) return null;
+    return parseRegistryVersions(JSON.parse(text));
+  } catch (error) {
+    console.error("achromat-mom registry version lookup failed", error instanceof Error ? error.name : "error");
+    return null;
+  }
+}
+
+/**
+ * The versions the discovery documents state: the registry's latest listing, cached for MCP_VERSION_CACHE_MS.
+ * Never throws and never waits more than MCP_REGISTRY_TIMEOUT_MS. When the registry cannot be read, the last known
+ * versions (or MCP_VERSIONS_FALLBACK) are used and the registry is tried again after MCP_VERSION_RETRY_MS.
+ * Concurrent requests share one fetch.
+ */
+export function resolveMcpVersions(nowMs = Date.now()): Promise<McpVersions> {
+  if (versionCache !== null && nowMs < versionCache.expiresAtMs) return Promise.resolve(versionCache.versions);
+  versionRefresh ??= fetchRegistryVersions().then((fetched) => {
+    const known = versionCache?.versions ?? MCP_VERSIONS_FALLBACK;
+    const versions = fetched ?? known;
+    versionCache = { versions, expiresAtMs: Date.now() + (fetched ? MCP_VERSION_CACHE_MS : MCP_VERSION_RETRY_MS) };
+    versionRefresh = null;
+    return versions;
+  });
+  return versionRefresh;
+}
 
 /** The public MCP sandbox on this origin (src/routes/mcp.ts): Streamable HTTP, no authentication. */
 export const MCP_REMOTE_URL = `${SITE_ORIGIN}${MCP_PATH}`;
@@ -133,28 +243,34 @@ export const MCP_REMOTE_URL = `${SITE_ORIGIN}${MCP_PATH}`;
  * A card describes how a client reaches a server. This origin hosts one remote endpoint, the public sandbox
  * (`remotes`: Streamable HTTP, no auth, sample lessons through achromat_recall only). The full server is the local
  * stdio npm package; its install details sit in a vendor-namespaced `_meta` key, the card format's own extension point.
+ * `version` is the registry listing's version, and the distribution's `version` is the npm release it points at.
  */
-export const MCP_SERVER_CARD = {
-  $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
-  name: "ai.achromat/mcp-server",
-  title: "Achromat Machine Operational Memory",
-  description:
-    "Achromat Machine Operational Memory recalls compliant tool-call arguments for fintech payments and credit decisions, industrial and robotics actuation, and DevSecOps commands, deployments and access changes. The public sandbox returns sample lessons; the npm server provides full recall and calibration. It does not execute the underlying business tool.",
-  version: MCP_SERVER_VERSION,
-  websiteUrl: SITE_ORIGIN,
-  icons: [{ src: `${SITE_ORIGIN}/logo-light.png`, mimeType: "image/png", theme: "light" }],
-  remotes: [{ type: "streamable-http", url: MCP_REMOTE_URL }],
-  _meta: {
-    "ai.achromat/distribution": {
-      registryType: "npm",
-      identifier: MCP_PACKAGE,
-      version: MCP_SERVER_VERSION,
-      transport: { type: "stdio" },
-      command: "npx",
-      args: ["-y", MCP_PACKAGE],
+export function mcpServerCard(versions: McpVersions) {
+  return {
+    $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+    name: MCP_REGISTRY_NAME,
+    title: "Achromat Machine Operational Memory",
+    description:
+      "Achromat Machine Operational Memory recalls compliant tool-call arguments for fintech payments, corporate spend and credit decisions, industrial and robot actuation, DevSecOps commands, deployments and access changes, contractual eligibility decisions and compliance filings. The public sandbox returns sample lessons; the npm server provides full recall and calibration. It does not execute the underlying business tool.",
+    version: versions.server,
+    websiteUrl: SITE_ORIGIN,
+    icons: [{ src: `${SITE_ORIGIN}/logo-light.png`, mimeType: "image/png", theme: "light" }],
+    remotes: [{ type: "streamable-http", url: MCP_REMOTE_URL }],
+    _meta: {
+      "ai.achromat/distribution": {
+        registryType: "npm",
+        identifier: MCP_PACKAGE,
+        version: versions.package,
+        transport: { type: "stdio" },
+        command: "npx",
+        args: ["-y", MCP_PACKAGE],
+      },
     },
-  },
-} as const;
+  } as const;
+}
+
+/** The card with the fallback versions: what is served before the registry has answered. */
+export const MCP_SERVER_CARD = mcpServerCard(MCP_VERSIONS_FALLBACK);
 
 // ───────────────────────────── robots.txt ─────────────────────────────
 
@@ -214,7 +330,7 @@ export type CatalogEntry = {
   trustManifest?: TrustManifest;
 };
 
-/** The four skills, typed as ARD names them. Order matters: entries[0] is the base protocol. */
+/** The six skills, typed as ARD names them. Order matters: entries[0] is the base protocol. */
 const SKILL_ENTRIES: readonly CatalogEntry[] = [
   {
     identifier: `urn:air:${PUBLISHER}:skill:achromat-mom`,
@@ -230,7 +346,7 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
       "learn from earlier policy blocks so my agent gets the call right the first time",
       "get verified safe arguments for an industrial robot command",
     ],
-    tags: ["agent-memory", "policy", "compliance", "fintech", "industrial-iot", "devsecops"],
+    tags: ["agent-memory", "policy", "compliance", "fintech", "industrial-iot", "devsecops", "contractual-eligibility", "compliance-provenance"],
     // The API contact points are flat keys: api* for the base and the way in, public* and signed* for the endpoints.
     metadata: {
       apiBaseUrl: `${SITE_ORIGIN}/api/v1`,
@@ -253,17 +369,18 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
     type: AGENT_SKILL_TYPE,
     url: `${SITE_ORIGIN}${FINTECH_PATH}`,
     description:
-      "Tool schemas and placeholders for fintech agents: wire transfers and credit adverse action notices. Recall the verified compliant version of a payment or notice call before acting, and calibrate against live policy when nothing is recalled. Builds on the core protocol at /skill.md.",
+      "Tool schemas and placeholders for fintech agents: wire transfers, credit adverse action notices, and corporate spend (budget commitment, expenditure approval, payment release). Recall the verified compliant version of a payment, spend or notice call before acting, and calibrate against live policy when nothing is recalled. Builds on the core protocol at /skill.md.",
     capabilities: ["RecallCompliantArguments", "CalibratePolicy"],
     representativeQueries: [
       "find the compliant version of a blocked wire transfer",
       "what arguments does a domestic wire need to pass dual control and sanctions screening",
       "check an adverse action notice call against policy before sending it",
+      "what budget clearance and dual approval evidence does a corporate payment release need",
     ],
-    tags: ["agent-memory", "policy", "compliance", "fintech", "payments"],
+    tags: ["agent-memory", "policy", "compliance", "fintech", "payments", "corporate-spend"],
     metadata: {
       domain: "fintech",
-      tools: "dispatch_wire, issue_credit_adverse_action",
+      tools: "dispatch_wire, issue_credit_adverse_action, commit_corporate_spend, approve_expenditure, release_payment",
       coreProtocol: `${SITE_ORIGIN}${SKILL_PATH}`,
     },
   },
@@ -307,6 +424,46 @@ const SKILL_ENTRIES: readonly CatalogEntry[] = [
       coreProtocol: `${SITE_ORIGIN}${SKILL_PATH}`,
     },
   },
+  {
+    identifier: `urn:air:${PUBLISHER}:skill:achromat-mom-contractual-eligibility`,
+    displayName: "Achromat Machine Operational Memory for contractual eligibility",
+    type: AGENT_SKILL_TYPE,
+    url: `${SITE_ORIGIN}${CONTRACTUAL_ELIGIBILITY_PATH}`,
+    description:
+      "Tool schemas and evidence placeholders for agents that approve claims, confirm eligibility and bind contract terms. Recall the verified compliant version of a claim or contract call before acting, and calibrate against live policy when nothing is recalled. Builds on the core protocol at /skill.md.",
+    capabilities: ["RecallCompliantArguments", "CalibratePolicy"],
+    representativeQueries: [
+      "check an insurance claim approval call against policy before sending it",
+      "what policy record and inspection evidence does an eligibility confirmation need",
+      "find the compliant version of a blocked contract term binding",
+    ],
+    tags: ["agent-memory", "policy", "compliance", "contractual-eligibility", "insurance", "claims"],
+    metadata: {
+      domain: "contractual_eligibility",
+      tools: "approve_eligibility_claim, confirm_eligibility, bind_contract_terms",
+      coreProtocol: `${SITE_ORIGIN}${SKILL_PATH}`,
+    },
+  },
+  {
+    identifier: `urn:air:${PUBLISHER}:skill:achromat-mom-compliance-provenance`,
+    displayName: "Achromat Machine Operational Memory for compliance provenance",
+    type: AGENT_SKILL_TYPE,
+    url: `${SITE_ORIGIN}${COMPLIANCE_PROVENANCE_PATH}`,
+    description:
+      "Tool schemas and evidence placeholders for agents that submit regulated records and filings or release compliance reports backed by signed receipts. Recall the verified compliant version of a submission before acting, and calibrate against live policy when nothing is recalled. Builds on the core protocol at /skill.md.",
+    capabilities: ["RecallCompliantArguments", "CalibratePolicy"],
+    representativeQueries: [
+      "check a regulatory filing submission against provenance policy before sending it",
+      "what receipt evidence does a regulated record submission need to pass policy",
+      "find the compliant version of a blocked compliance report release",
+    ],
+    tags: ["agent-memory", "policy", "compliance", "compliance-provenance", "regulatory-filing", "audit"],
+    metadata: {
+      domain: "compliance_provenance",
+      tools: "submit_regulated_record, submit_filing, release_report",
+      coreProtocol: `${SITE_ORIGIN}${SKILL_PATH}`,
+    },
+  },
 ];
 
 /**
@@ -321,36 +478,39 @@ const AI_SKILL_ENTRIES: readonly CatalogEntry[] = SKILL_ENTRIES.map((entry) => (
   type: AI_SKILL_TYPE,
 }));
 
-const MCP_ENTRY: CatalogEntry = {
-  identifier: `urn:air:${PUBLISHER}:server:achromat-mom-mcp`,
-  displayName: "Achromat Machine Operational Memory MCP server",
-  type: MCP_CARD_TYPE,
-  // The server card, not the npm page: `url` addresses the artifact document. The package is named in the card.
-  url: `${SITE_ORIGIN}${MCP_CARD_PATH}`,
-  version: MCP_SERVER_VERSION,
-  description:
-    "Achromat Machine Operational Memory over MCP. A public Streamable HTTP sandbox at /mcp (no authentication) returns sample verified lessons through achromat_recall; the full npm server (stdio) gives any MCP host recall and calibrate tools.",
-  capabilities: ["RecallCompliantArguments", "CalibratePolicy", "RegisterIdentity", "RecallSampleLessons"],
-  representativeQueries: [
-    "add policy-checked memory of blocked tool calls to my MCP host",
-    "install an MCP server that recalls the compliant version of a tool call",
-    "check an agent tool call against live policy from Claude Desktop",
-    "try a remote MCP server with sample compliance lessons without installing anything",
-  ],
-  tags: ["mcp", "agent-memory", "policy", "compliance", "npm", "stdio", "streamable-http", "remote"],
-  // Scalars only (ARD). The package* keys describe the npm server, the remote* keys the sandbox on this origin.
-  metadata: {
-    npmPackage: MCP_PACKAGE,
-    packageRegistry: "npm",
-    packageTransport: "stdio",
-    command: `npx -y ${MCP_PACKAGE}`,
-    remoteUrl: MCP_REMOTE_URL,
-    remoteTransport: "streamable-http",
-    remoteAuthentication: "none",
-    remoteScope: "sandbox: sample approved lessons through achromat_recall only",
-    coreProtocol: `${SITE_ORIGIN}${SKILL_PATH}`,
-  },
-};
+/** The catalog's MCP entry. Its `version` is the registry listing's, the same as the card's. */
+function mcpEntry(versions: McpVersions): CatalogEntry {
+  return {
+    identifier: `urn:air:${PUBLISHER}:server:achromat-mom-mcp`,
+    displayName: "Achromat Machine Operational Memory MCP server",
+    type: MCP_CARD_TYPE,
+    // The server card, not the npm page: `url` addresses the artifact document. The package is named in the card.
+    url: `${SITE_ORIGIN}${MCP_CARD_PATH}`,
+    version: versions.server,
+    description:
+      "Achromat Machine Operational Memory over MCP. A public Streamable HTTP sandbox at /mcp (no authentication) returns sample verified lessons through achromat_recall; the full npm server (stdio) gives any MCP host recall and calibrate tools.",
+    capabilities: ["RecallCompliantArguments", "CalibratePolicy", "RegisterIdentity", "RecallSampleLessons"],
+    representativeQueries: [
+      "add policy-checked memory of blocked tool calls to my MCP host",
+      "install an MCP server that recalls the compliant version of a tool call",
+      "check an agent tool call against live policy from Claude Desktop",
+      "try a remote MCP server with sample compliance lessons without installing anything",
+    ],
+    tags: ["mcp", "agent-memory", "policy", "compliance", "npm", "stdio", "streamable-http", "remote"],
+    // Scalars only (ARD). The package* keys describe the npm server, the remote* keys the sandbox on this origin.
+    metadata: {
+      npmPackage: MCP_PACKAGE,
+      packageRegistry: "npm",
+      packageTransport: "stdio",
+      command: `npx -y ${MCP_PACKAGE}`,
+      remoteUrl: MCP_REMOTE_URL,
+      remoteTransport: "streamable-http",
+      remoteAuthentication: "none",
+      remoteScope: "sandbox: sample approved lessons through achromat_recall only",
+      coreProtocol: `${SITE_ORIGIN}${SKILL_PATH}`,
+    },
+  };
+}
 
 const FEED_ENTRY: CatalogEntry = {
   identifier: `urn:air:${PUBLISHER}:feed:approved-lessons`,
@@ -369,19 +529,24 @@ const FEED_ENTRY: CatalogEntry = {
  * and `host`. Both are present, so either kind of client can read it. `trustManifest` is on the host and on
  * every entry, never at the root (the AI Catalog schema rejects extra root properties).
  */
-export const CATALOG = {
-  specVersion: "1.0",
-  host: {
-    displayName: "Achromat AI",
-    identifier: DID,
-    documentationUrl: `${SITE_ORIGIN}${SKILL_PATH}`,
-    logoUrl: `${SITE_ORIGIN}/logo-light.png`,
-    trustManifest: TRUST_MANIFEST,
-  },
-  entries: [...SKILL_ENTRIES, ...AI_SKILL_ENTRIES, MCP_ENTRY, FEED_ENTRY].map(
-    (entry): CatalogEntry => ({ ...entry, trustManifest: TRUST_MANIFEST }),
-  ),
-};
+export function catalogFor(versions: McpVersions) {
+  return {
+    specVersion: "1.0",
+    host: {
+      displayName: "Achromat AI",
+      identifier: DID,
+      documentationUrl: `${SITE_ORIGIN}${SKILL_PATH}`,
+      logoUrl: `${SITE_ORIGIN}/logo-light.png`,
+      trustManifest: TRUST_MANIFEST,
+    },
+    entries: [...SKILL_ENTRIES, ...AI_SKILL_ENTRIES, mcpEntry(versions), FEED_ENTRY].map(
+      (entry): CatalogEntry => ({ ...entry, trustManifest: TRUST_MANIFEST }),
+    ),
+  };
+}
+
+/** The catalog with the fallback versions: what is served before the registry has answered. */
+export const CATALOG = catalogFor(MCP_VERSIONS_FALLBACK);
 
 /** The serialised catalog: identical bytes at both paths. */
 export const CATALOG_BODY = `${JSON.stringify(CATALOG, null, 2)}\n`;
@@ -402,6 +567,28 @@ const CORS = { "Access-Control-Allow-Origin": "*" };
 const JSON_TYPE = "application/json; charset=utf-8";
 const PUBLIC_5_MIN = { ...CORS, "Cache-Control": "public, max-age=300" };
 
+/** The serialised catalog and card for one pair of versions. Few distinct pairs ever occur, so this stays tiny. */
+const VERSIONED_BODIES = new Map<string, { catalog: string; card: string }>();
+
+function versionedBodies(versions: McpVersions): { catalog: string; card: string } {
+  const key = `${versions.server}|${versions.package}`;
+  let bodies = VERSIONED_BODIES.get(key);
+  if (bodies === undefined) {
+    bodies = { catalog: `${JSON.stringify(catalogFor(versions), null, 2)}\n`, card: `${JSON.stringify(mcpServerCard(versions), null, 2)}\n` };
+    if (VERSIONED_BODIES.size >= 8) VERSIONED_BODIES.clear();
+    VERSIONED_BODIES.set(key, bodies);
+  }
+  return bodies;
+}
+
+/** The documents that state the MCP server's version. Serve them with resolveMcpVersions() (src/index.ts). */
+const VERSIONED_PATHS: ReadonlySet<string> = new Set([ARD_PATH, AI_CATALOG_PATH, MCP_CARD_PATH]);
+
+/** True for a document whose body depends on the registry's versions. */
+export function isVersionedDiscoveryPath(pathname: string): boolean {
+  return VERSIONED_PATHS.has(pathname);
+}
+
 const DOCUMENTS: Readonly<Record<string, Document>> = {
   [ROBOTS_PATH]: { contentType: "text/plain; charset=utf-8", body: ROBOTS_TXT, headers: { "Cache-Control": "public, max-age=3600" } },
   // ARD does not name a media type for ard.json; plain JSON is what every fetch tool and validator accepts.
@@ -415,15 +602,20 @@ const DOCUMENTS: Readonly<Record<string, Document>> = {
 
 /**
  * The response for a discovery path, or null if the request is not one (so the caller carries on).
+ * `versions` fills in the MCP server's version on the catalog and the card (resolveMcpVersions).
  * `hostname` is the host the request arrived on. The DID document is the one document that depends on it: a request
  * for LEGACY_HOST gets the legacy document (LEGACY_DID_DOCUMENT), every other host gets the canonical one. The host
  * is matched exactly and case-insensitively, so no other name can obtain the legacy document.
  */
-export function discoveryResponse(method: string, pathname: string, hostname = ""): Response | null {
+export function discoveryResponse(method: string, pathname: string, hostname = "", versions: McpVersions = MCP_VERSIONS_FALLBACK): Response | null {
   if (method !== "GET" && method !== "HEAD") return null;
   if (!Object.hasOwn(DOCUMENTS, pathname)) return null;
-  const document =
-    pathname === DID_PATH && hostname.toLowerCase() === LEGACY_HOST ? { ...DOCUMENTS[DID_PATH]!, body: LEGACY_DID_BODY } : DOCUMENTS[pathname]!;
+  let document = DOCUMENTS[pathname]!;
+  if (pathname === DID_PATH && hostname.toLowerCase() === LEGACY_HOST) document = { ...document, body: LEGACY_DID_BODY };
+  if (VERSIONED_PATHS.has(pathname)) {
+    const bodies = versionedBodies(versions);
+    document = { ...document, body: pathname === MCP_CARD_PATH ? bodies.card : bodies.catalog };
+  }
   const headers = new Headers(SECURITY_HEADERS);
   headers.set("Content-Type", document.contentType);
   for (const [name, value] of Object.entries(document.headers)) headers.set(name, value);

@@ -5,7 +5,7 @@
  *   GET /.well-known/agent-skills/index.json               the index
  *   GET /.well-known/agent-skills/<name>/SKILL.md          the RFC's conventional location of each skill
  *
- * The index lists the same four documents src/skill.ts serves (the core protocol and the three domain
+ * The index lists the same six documents src/skill.ts serves (the core protocol and the five domain
  * references). Nothing is written twice:
  *   - `name` and `description` are read from each document's own frontmatter, so they cannot drift from it.
  *   - `digest` is the SHA-256 of the document's bytes. The Worker serves that very string as UTF-8, so the digest
@@ -50,7 +50,7 @@ export function readFrontmatter(markdown: string): { name: string; description: 
 
 let skills: readonly AgentSkill[] | undefined;
 
-/** The four skills, core protocol first. Throws if a document's frontmatter breaks the RFC's rules. */
+/** The six skills, core protocol first. Throws if a document's frontmatter breaks the RFC's rules. */
 export function agentSkills(): readonly AgentSkill[] {
   skills ??= SKILL_PATHS.map((documentPath): AgentSkill => {
     const { name, description } = readFrontmatter(SKILL_DOCUMENTS[documentPath]!);

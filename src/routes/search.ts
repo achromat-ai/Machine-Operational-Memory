@@ -16,7 +16,7 @@
  * client can call this route, and the landing page is its documented caller.
  */
 import { Hono, type Context } from "hono";
-import { bundleForDomain } from "../config/domains";
+import { bundleForDomain, canonicalDomain } from "../config/domains";
 import type { Env } from "../env";
 import { apiError, queryParams } from "../http";
 import type { AuthVariables } from "../middleware/auth";
@@ -82,7 +82,8 @@ async function handleSearch(c: Context<SearchEnv>, options: SearchOptions) {
     if (!ALLOWED_PARAMETERS.has(name)) return invalid(c, name, "unknown parameter");
   }
 
-  const domain = params.domain ?? "";
+  // An alias (robotics) is searched, recorded and reported as the domain it stands for.
+  const domain = canonicalDomain(params.domain ?? "");
   if (!DomainSlug.safeParse(domain).success || bundleForDomain(domain) === null) {
     return apiError(c, 400, "DOMAIN_UNKNOWN", "domain is not served", [{ path: "domain", message: "unknown domain" }]);
   }

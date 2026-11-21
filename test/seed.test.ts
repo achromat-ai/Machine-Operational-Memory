@@ -212,7 +212,7 @@ describe("POST /api/v1/admin/seed: a verified pair becomes an approved, public l
     expect(triageRows.n).toBe(0); // community triage never ran
   });
 
-  it("seeds dispatch_manipulation through its own policy, in both the robotics and industrial_iot domains", async () => {
+  it("seeds dispatch_manipulation through its own policy, and stores a robotics pair under industrial_iot", async () => {
     const world = await freshWorld();
     const admin = await provisionAgent("admin");
     const base = { tool: "dispatch_manipulation", policyIds: [POLICY_ROBOTICS_MANIPULATION], failed: { speed_mm_s: 900, human_in_cell: true }, compliant: { speed_mm_s: 250, human_in_cell: true } };
@@ -221,6 +221,10 @@ describe("POST /api/v1/admin/seed: a verified pair becomes an approved, public l
     expect(json.seeded).toHaveLength(2);
     const fix = await env.DB.prepare("SELECT bundle_id FROM fixes WHERE allow_receipt_id = ?1").bind(json.seeded[0].allow_receipt_id).first<any>();
     expect(fix).toEqual({ bundle_id: "policies:robotics_manipulation" });
+    for (const seeded of json.seeded) {
+      const lesson = await env.DB.prepare("SELECT domain FROM lessons WHERE lesson_id = ?1").bind(seeded.lesson_id).first<any>();
+      expect(lesson).toEqual({ domain: "industrial_iot" });
+    }
   });
 });
 

@@ -65,8 +65,8 @@ describe("validateSearchForm", () => {
     expect(result.ok && result.payload.task_description).toBe("Move client funds to the settlement account");
   });
 
-  it("offers exactly the four served domains and rejects anything else", () => {
-    expect([...DOMAINS]).toEqual(["fintech", "industrial_iot", "robotics", "devsecops"]);
+  it("offers exactly the five served domains and rejects anything else", () => {
+    expect([...DOMAINS]).toEqual(["fintech", "industrial_iot", "devsecops", "contractual_eligibility", "compliance_provenance"]);
     for (const domain of DOMAINS) expect(check({ domain }).ok).toBe(true);
     for (const domain of ["", "Fintech", "banking"]) expect(errorsOf({ domain }).domain).toBeDefined();
     expect(check({ domain: " fintech " }).ok).toBe(true); // trimmed

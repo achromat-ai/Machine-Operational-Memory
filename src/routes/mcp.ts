@@ -25,6 +25,7 @@
 import { Hono, type Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
+import { DOMAIN_ALIASES, canonicalDomain } from "../config/domains";
 import type { Env } from "../env";
 import { parseJsonBytes, readBodyBytes } from "../http";
 import type { AuthVariables } from "../middleware/auth";
@@ -66,12 +67,13 @@ const CAPABILITIES = { tools: { listChanged: false } } as const;
 // ───────────────────────────── the tool ─────────────────────────────
 
 /** The domains the npm package's schema offers (the keys of src/config/domains.ts DOMAIN_BUNDLES; a test pins it). */
-export const SANDBOX_DOMAINS = ["fintech", "industrial_iot", "robotics", "devsecops"] as const;
+export const SANDBOX_DOMAINS = ["fintech", "industrial_iot", "devsecops", "contractual_eligibility", "compliance_provenance"] as const;
 
 /**
  * The npm package's achromat_recall inputSchema, exactly as its tools/list advertises it (@achromat-ai/mcp-server
  * 0.1.1, the JSON Schema its SDK generates from src/tools.ts recallInput). Keep it identical: an agent that learnt
- * the call here must be able to make the same call against the full server.
+ * the call here must be able to make the same call against the full server. The one exception is the domain enum,
+ * which lists the served domains (SANDBOX_DOMAINS) and leads the package until its next release names the same ones.
  */
 export const RECALL_INPUT_SCHEMA = {
   $schema: "http://json-schema.org/draft-07/schema#",
@@ -124,7 +126,12 @@ export const SANDBOX_RECALL_TOOL = {
 
 /** The same limits the npm package enforces on this input (its src/tools.ts recallInput). Unknown keys are ignored. */
 const RecallInput = z.object({
-  domain: z.enum(SANDBOX_DOMAINS),
+  // An agent that learnt an older schema may still send an alias (robotics): it gets the samples of the domain it
+  // stands for. The advertised enum lists served domains only.
+  domain: z.preprocess(
+    (value) => (typeof value === "string" && Object.hasOwn(DOMAIN_ALIASES, value) ? canonicalDomain(value) : value),
+    z.enum(SANDBOX_DOMAINS),
+  ),
   tool_name: z
     .string()
     .min(1)

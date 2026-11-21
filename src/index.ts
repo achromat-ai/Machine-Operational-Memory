@@ -3,9 +3,10 @@
  * The deployed Worker trusts only the pinned ramen-ai receipt keys and uses the
  * real Workers AI and Vectorize bindings.
  *
- * GET /skill.md (the core agent protocol), the three domain references (/fintech.md, /industrial_iot.md and
- * /devsecops.md, src/skill.ts) and the machine discovery documents (/robots.txt, the ARD catalog, the did:web
- * document and the MCP server card, src/discovery.ts) are routed here, ahead of the app. Each GET of a protocol
+ * GET /skill.md (the core agent protocol), the five domain references (/fintech.md, /industrial_iot.md,
+ * /devsecops.md, /contractual_eligibility.md and /compliance_provenance.md, src/skill.ts) and the machine discovery documents (/robots.txt, the ARD catalog, the did:web
+ * document and the MCP server card, src/discovery.ts) are routed here, ahead of the app. The catalog and the card
+ * carry the MCP server's version from the Official MCP Registry (src/discovery.ts resolveMcpVersions). Each GET of a protocol
  * document writes one skill_view telemetry point (src/telemetry.ts) carrying the optional ?ref= tag.
  *
  * The public MCP sandbox (POST /mcp, OPTIONS for CORS, 405 for other methods; src/routes/mcp.ts) is served by
@@ -21,7 +22,14 @@
 import { createWorker, type MomWorker } from "./app";
 import type { Env } from "./env";
 import { agentSkillByAlias, agentSkillsResponse, isAgentSkillsPath } from "./agent-skills";
-import { crawlerNotFound, discoveryResponse, isCertificateValidationPath, wellKnownNotFound } from "./discovery";
+import {
+  crawlerNotFound,
+  discoveryResponse,
+  isCertificateValidationPath,
+  isVersionedDiscoveryPath,
+  resolveMcpVersions,
+  wellKnownNotFound,
+} from "./discovery";
 import { skillDocumentResponse } from "./skill";
 import { recordTelemetryWith, refFromUrl } from "./telemetry";
 
@@ -64,6 +72,12 @@ export default {
         return skill;
       }
       if (isAgentSkillsPath(pathname)) return serveAgentSkills(request, env, ctx, pathname);
+      // The catalog and the MCP server card state the MCP server's version, read from the Official MCP Registry
+      // (cached for 15 minutes; a fallback is used when the registry cannot be read, so these never fail).
+      if (isVersionedDiscoveryPath(pathname)) {
+        const method = request.method;
+        return resolveMcpVersions().then((versions) => discoveryResponse(method, pathname, hostname, versions)!);
+      }
       // The host matters for one document only: did.json is served per host (the legacy host keeps its own DID).
       const discovery = discoveryResponse(request.method, pathname, hostname);
       if (discovery) return discovery;

@@ -551,6 +551,15 @@ describe("POST /api/v1/recall: what an unsigned miss records", () => {
     expect(await env.DB.prepare("SELECT count(*) AS n FROM domain_demand WHERE agent_key_hmac = ?1").bind(await networkDemandId(ip)).first()).toEqual({ n: 1 });
   });
 
+  it("records a robotics recall under industrial_iot, the domain it stands for", async () => {
+    const world = await freshWorld();
+    const ip = freshIp();
+    const answer = await world.recallUnsigned(query(uniqueDescription(), TRAP_ARGUMENTS, { domain: "robotics", tool: "move_robot" }), { ip });
+    expect(answer.json).toEqual({ success: true, match: false });
+    const rows = await env.DB.prepare("SELECT domain FROM domain_demand WHERE agent_key_hmac = ?1").bind(await networkDemandId(ip)).all<{ domain: string }>();
+    expect(rows.results).toEqual([{ domain: "industrial_iot" }]);
+    expect(world.analytics.points[0]!.blobs![1]).toBe("industrial_iot");
+  });
   it("writes one recall_unsigned point, on its own index, with the miss reason and the caller label", async () => {
     const world = await freshWorld();
     // tool_unknown: the service holds no public lesson for this tool.

@@ -11,7 +11,7 @@
  * callers never reach the JSON parser.
  */
 import { z } from "zod";
-import { DOMAIN_BUNDLES } from "./config/domains";
+import { DOMAIN_BUNDLES, canonicalDomain } from "./config/domains";
 
 // ════════════════════════════════════════════════════════════════════════
 // Limits
@@ -147,6 +147,12 @@ export const DomainSlug = z
   .string()
   .max(LIMITS.domainMax, "domain must be at most 64 characters")
   .regex(/^[a-z0-9][a-z0-9_-]{1,63}$/, "domain must be a lowercase slug of 2-64 characters");
+/**
+ * A domain slug as a request body or query names it, rewritten to the served domain it stands for
+ * (src/config/domains.ts DOMAIN_ALIASES: robotics → industrial_iot). Every route that reads the domain reads this
+ * output, so an alias never reaches the fingerprint, the ledger, a Vectorize namespace or telemetry.
+ */
+export const RequestDomain = DomainSlug.transform(canonicalDomain);
 
 /** Tool name: 1-64 ASCII characters, matching the Vectorize tool_name metadata index. */
 export const ToolName = z
@@ -468,7 +474,7 @@ export type AgentRegistration = z.output<typeof AgentRegistration>;
 // ════════════════════════════════════════════════════════════════════════
 
 const taskFields = {
-  domain: DomainSlug,
+  domain: RequestDomain,
   tool: ToolName,
   arguments: ToolArguments,
   task_description: TaskDescription,
@@ -821,7 +827,7 @@ export const SEED_MAX_PAIRS = 10;
  * inputs itself, verifies both receipts against the pinned key, and takes everything signed from the receipts.
  */
 export const SeedPair = z.strictObject({
-  domain: DomainSlug,
+  domain: RequestDomain,
   tool_name: ToolName,
   task_description: TaskDescription,
   failed_arguments: ToolArguments,
@@ -849,7 +855,7 @@ const PageLimit = (fallback: number, max: number) =>
 /** Query of GET /api/v1/admin/pending. Defaults to the pending_review queue. */
 export const PendingQuery = z.strictObject({
   status: z.enum(["pending_review", "quarantined"]).default("pending_review"),
-  domain: DomainSlug.optional(),
+  domain: RequestDomain.optional(),
   limit: PageLimit(PENDING_DEFAULT_LIMIT, PENDING_MAX_LIMIT),
   cursor: z.string().max(200).optional(),
 });
@@ -863,7 +869,7 @@ export type TelemetryQuery = z.output<typeof TelemetryQuery>;
 
 /** Query of GET /api/v1/bounties. */
 export const BountyQuery = z.strictObject({
-  domain: DomainSlug.optional(),
+  domain: RequestDomain.optional(),
   tool: ToolName.optional(),
   limit: PageLimit(BOUNTY_DEFAULT_LIMIT, BOUNTY_MAX_LIMIT),
   cursor: z.string().max(200).optional(),

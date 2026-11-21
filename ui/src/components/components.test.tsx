@@ -161,7 +161,7 @@ describe("SimpleSearch", () => {
     expect(html).toContain('type="search"');
     expect(html).not.toContain("Tool name");
     expect(html).not.toContain("JSON");
-    expect([...html.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1])).toEqual(["fintech", "industrial_iot", "robotics", "devsecops"]);
+    expect([...html.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1])).toEqual(["fintech", "industrial_iot", "devsecops", "contractual_eligibility", "compliance_provenance"]);
   });
 
   it("says it is searching and disables the button while a search runs", () => {
@@ -208,9 +208,11 @@ describe("SearchInput", () => {
     for (const [, id] of html.matchAll(/<label for="([^"]+)"/g)) expect(html).toContain(`id="${id}"`);
   });
 
-  it("offers exactly the four domains", () => {
+  it("offers exactly the five served domains, labelled", () => {
     const html = render();
-    expect([...html.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1])).toEqual(["fintech", "industrial_iot", "robotics", "devsecops"]);
+    expect([...html.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1])).toEqual(["fintech", "industrial_iot", "devsecops", "contractual_eligibility", "compliance_provenance"]);
+    for (const label of ["Fintech and banking", "Industrial IoT", "DevSecOps", "Contractual eligibility", "Compliance provenance"]) expect(html).toContain(`>${label}</option>`);
+    expect(html).not.toContain("Robotics");
   });
 
   it("does not let the browser autofill or autocorrect technical input", () => {

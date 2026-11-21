@@ -26,12 +26,15 @@ const MARKER = "TRAP-ONLY-MARKER";
 const NOTICE =
   "This is a sandboxed preview. Do not use these sample arguments for live execution. To access the full semantic vector space and calibration engine, install the local MCP server via 'npx -y @achromat-ai/mcp-server'.";
 
-/** @achromat-ai/mcp-server 0.1.1 achromat_recall inputSchema, as captured from its tools/list. Independent copy. */
+/**
+ * @achromat-ai/mcp-server 0.1.1 achromat_recall inputSchema, as captured from its tools/list. Independent copy.
+ * The domain enum is the served domains: the sandbox leads the package here until the package's next release.
+ */
 const NPM_RECALL_INPUT_SCHEMA = {
   $schema: "http://json-schema.org/draft-07/schema#",
   type: "object",
   properties: {
-    domain: { type: "string", enum: ["fintech", "industrial_iot", "robotics", "devsecops"], description: "The area the tool call belongs to." },
+    domain: { type: "string", enum: ["fintech", "industrial_iot", "devsecops", "contractual_eligibility", "compliance_provenance"], description: "The area the tool call belongs to." },
     tool_name: {
       type: "string",
       minLength: 1,
@@ -384,6 +387,16 @@ describe("POST /mcp tools/call achromat_recall", () => {
     expect(text(other.json.result)).toContain("No public sample lessons for devsecops yet.");
   });
 
+  it("answers a robotics call (an older schema's name) with the industrial_iot samples, and serves the new domains", async () => {
+    const harness = createHarness(await freshWorld({ mcpCacheSeconds: 0 }));
+    const robotics = await harness.recall({ ...RECALL_ARGS, domain: "robotics" });
+    expect(robotics.json.result.isError).not.toBe(true);
+    expect(robotics.json.result.structuredContent).toMatchObject({ sandbox: true, domain: "industrial_iot" });
+    for (const domain of ["contractual_eligibility", "compliance_provenance"]) {
+      const answer = await harness.recall({ ...RECALL_ARGS, domain });
+      expect(answer.json.result.structuredContent, domain).toMatchObject({ sandbox: true, domain });
+    }
+  });
   it("enforces the npm schema as a tool error that names the fields but never echoes values", async () => {
     const harness = createHarness(await freshWorld({ mcpCacheSeconds: 0 }));
     const cases: Array<[string, Record<string, unknown>]> = [
